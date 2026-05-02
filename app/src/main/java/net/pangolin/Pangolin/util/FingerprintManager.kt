@@ -17,7 +17,7 @@ import javax.inject.Singleton
 
 @Singleton
 class FingerprintManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val socketManager: SocketManager,
     private val collector: AndroidFingerprintCollector,
 ) : PangolinApplication.StandbyListener {

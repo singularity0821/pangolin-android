@@ -19,7 +19,7 @@ import javax.inject.Singleton
 
 @Singleton
 class AndroidFingerprintCollector @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
 ) {
     fun gatherFingerprintInfo(): Fingerprint {
         val arch = System.getProperty("os.arch") ?: "unknown"
