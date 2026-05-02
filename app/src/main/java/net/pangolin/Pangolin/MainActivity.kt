@@ -50,6 +50,7 @@ class MainActivity : BaseNavigationActivity() {
     
     // Tunnel manager
     private lateinit var tunnelManager: TunnelManager
+    private var pendingTileConnectRequest = false
 
     // VPN permission launcher
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -85,6 +86,8 @@ class MainActivity : BaseNavigationActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        pendingTileConnectRequest = isTileConnectRequest(intent)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -290,12 +293,14 @@ class MainActivity : BaseNavigationActivity() {
                 contentBinding.mainContent.visibility = android.view.View.VISIBLE
                 // Update connection controls based on server status
                 updateConnectionControls()
+                handlePendingTileConnectRequest()
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error initializing auth manager", e)
                 // Hide loading overlay even on error
                 contentBinding.loadingOverlay.visibility = android.view.View.GONE
                 contentBinding.mainContent.visibility = android.view.View.VISIBLE
                 updateConnectionControls()
+                handlePendingTileConnectRequest()
             }
         }
 
@@ -370,6 +375,38 @@ class MainActivity : BaseNavigationActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (isTileConnectRequest(intent)) {
+            pendingTileConnectRequest = true
+            handlePendingTileConnectRequest()
+        }
+    }
+
+    private fun isTileConnectRequest(intent: Intent?): Boolean {
+        if (intent == null) {
+            return false
+        }
+        return intent.action == PangolinTileService.ACTION_REQUEST_CONNECT ||
+            intent.getBooleanExtra(PangolinTileService.EXTRA_REQUEST_CONNECT, false)
+    }
+
+    private fun handlePendingTileConnectRequest() {
+        if (!pendingTileConnectRequest) {
+            return
+        }
+
+        val state = tunnelManager.tunnelState.value
+        if (!state.canEnable) {
+            pendingTileConnectRequest = false
+            return
+        }
+
+        pendingTileConnectRequest = false
+        connectTunnel()
     }
 
     private fun showOlmErrorDialog(code: String, message: String) {

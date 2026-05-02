@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">Pangolin</string>
+    <string name="quick_tile_label">Pangolin</string>
+    <string name="quick_tile_state_on">Tunnel on</string>
+    <string name="quick_tile_state_off">Tunnel off</string>
     <string name="permission_label">control Pangolin tunnels</string>
     <string name="permission_description">control Pangolin tunnels, enabling and disabling tunnels at will.</string>
 
