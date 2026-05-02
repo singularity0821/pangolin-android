@@ -2,6 +2,7 @@ package net.pangolin.Pangolin.util
 
 import android.content.Context
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,13 +21,16 @@ import net.pangolin.Pangolin.PacketTunnel.InitConfig
 import net.pangolin.Pangolin.PacketTunnel.Tunnel
 import net.pangolin.Pangolin.PacketTunnel.TunnelConfig
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Manages VPN tunnel state, connection, and lifecycle across the app.
  * This is a singleton that persists tunnel state across activity changes.
  */
-class TunnelManager private constructor(
-    private val context: Context,
+@Singleton
+class TunnelManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val authManager: AuthManager,
     private val accountManager: AccountManager,
     private val secretManager: SecretManager,
@@ -453,37 +457,6 @@ class TunnelManager private constructor(
     fun cleanup() {
         stopSocketPolling()
         scope.cancel()
-    }
-
-    companion object {
-        @Volatile
-        private var instance: TunnelManager? = null
-
-        fun getInstance(
-            context: Context,
-            authManager: AuthManager,
-            accountManager: AccountManager,
-            secretManager: SecretManager,
-            configManager: ConfigManager,
-            socketManager: SocketManager,
-            fingerprintManager: FingerprintManager
-        ): TunnelManager {
-            return instance ?: synchronized(this) {
-                instance ?: TunnelManager(
-                    context.applicationContext,
-                    authManager,
-                    accountManager,
-                    secretManager,
-                    configManager,
-                    socketManager,
-                    fingerprintManager
-                ).also { instance = it }
-            }
-        }
-
-        fun getInstance(): TunnelManager? {
-            return instance
-        }
     }
 }
 

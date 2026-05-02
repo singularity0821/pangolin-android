@@ -24,23 +24,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.databinding.ActivitySignInCodeBinding
 import net.pangolin.Pangolin.util.APIClient
-import net.pangolin.Pangolin.util.AuthManager
 import net.pangolin.Pangolin.util.AccountManager
-import net.pangolin.Pangolin.util.ConfigManager
-import net.pangolin.Pangolin.util.SecretManager
+import net.pangolin.Pangolin.util.AuthManager
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class SignInCodeActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySignInCodeBinding
     private val tag = "SignInCodeActivity"
 
-    private lateinit var apiClient: APIClient
-    private lateinit var authManager: AuthManager
-    private lateinit var accountManager: AccountManager
-    private lateinit var configManager: ConfigManager
-    private lateinit var secretManager: SecretManager
+    @Inject lateinit var apiClient: APIClient
+    @Inject lateinit var authManager: AuthManager
+    @Inject lateinit var accountManager: AccountManager
 
     private var hostname: String = "https://app.pangolin.net"
     private var hasAutoOpenedBrowser = false
@@ -82,25 +81,9 @@ class SignInCodeActivity : AppCompatActivity() {
             Log.i(tag, "Auto-start flow detected - will include username in device auth URL")
         }
 
-        // Get version name
-        val versionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        } catch (e: Exception) {
-            "1.0.0"
-        }
-
-        // Initialize managers
-        secretManager = SecretManager.getInstance(applicationContext)
-        accountManager = AccountManager.getInstance(applicationContext)
-        configManager = ConfigManager.getInstance(applicationContext)
-        apiClient = APIClient(hostname, versionName = versionName)
-        authManager = AuthManager(
-            context = applicationContext,
-            apiClient = apiClient,
-            configManager = configManager,
-            accountManager = accountManager,
-            secretManager = secretManager
-        )
+        // Point the shared APIClient at the (possibly self-hosted) sign-in hostname.
+        // AuthManager will keep this in sync once an account is active.
+        apiClient.updateBaseURL(hostname)
 
         // Setup Chrome Custom Tabs connection
         setupCustomTabs()

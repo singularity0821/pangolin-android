@@ -7,19 +7,25 @@ import android.util.Log
 import androidx.fragment.app.Fragment
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.tabs.TabLayoutMediator
+import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.databinding.ActivityStatusBinding
 import net.pangolin.Pangolin.databinding.ContentStatusBinding
 import net.pangolin.Pangolin.ui.StatusFormattedFragment
 import net.pangolin.Pangolin.ui.StatusJsonFragment
 import net.pangolin.Pangolin.ui.StatusPollingProvider
+import net.pangolin.Pangolin.util.SocketManager
 import net.pangolin.Pangolin.util.StatusPollingManager
 import java.io.File
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class StatusActivity : BaseNavigationActivity(), StatusPollingProvider {
 
     private lateinit var binding: ActivityStatusBinding
     private lateinit var contentBinding: ContentStatusBinding
     private var statusPollingManager: StatusPollingManager? = null
+
+    @Inject lateinit var socketManager: SocketManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,10 +38,6 @@ class StatusActivity : BaseNavigationActivity(), StatusPollingProvider {
         
         // Bind content layout
         contentBinding = ContentStatusBinding.bind(binding.content.root)
-
-        val socketManager =
-            (application as PangolinApplication).socketManager
-        
 
         statusPollingManager = StatusPollingManager(this, socketManager)
         

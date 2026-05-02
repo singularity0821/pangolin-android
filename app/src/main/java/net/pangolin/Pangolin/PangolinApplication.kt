@@ -2,64 +2,60 @@ package net.pangolin.Pangolin
 
 import android.app.Application
 import android.util.Log
+import dagger.hilt.android.HiltAndroidApp
 import net.pangolin.Pangolin.util.CrashHandler
-import net.pangolin.Pangolin.util.SocketManager
 import net.pangolin.Pangolin.util.StandbyDetector
-import java.io.File
 
 /**
  * Application class for Pangolin.
  * Manages app-wide resources and lifecycle events, including standby detection
  * to optimize battery usage by pausing background operations when appropriate.
+ *
+ * App-scoped dependencies are managed by Hilt — see [net.pangolin.Pangolin.di.AppModule]
+ * and the @Singleton-annotated managers under util/.
  */
+@HiltAndroidApp
 class PangolinApplication : Application(), StandbyDetector.StandbyListener {
-    
+
     private val tag = "PangolinApplication"
     private var standbyDetector: StandbyDetector? = null
-    
+
     // List of listeners that want to be notified of standby changes
     private val standbyListeners = mutableListOf<StandbyListener>()
 
-    lateinit var socketManager: SocketManager private set
-    
     override fun onCreate() {
         super.onCreate()
-        
+
         // Initialize crash handler first to capture any crashes during initialization
         CrashHandler.initialize(this)
-        
+
         Log.d(tag, "Pangolin application starting")
 
-        // Initialize socket manager
-        val socketPath = File(filesDir, "pangolin.sock").absolutePath
-        socketManager = SocketManager(socketPath)
-
         // Initialize standby detector
-        standbyDetector = StandbyDetector(this, this)
-        standbyDetector?.start()
+        standbyDetector = StandbyDetector(this, this).also { it.start() }
     }
-    
+
     override fun onTerminate() {
         super.onTerminate()
         Log.d(tag, "Pangolin application terminating")
         standbyDetector?.stop()
         standbyDetector = null
     }
-    
+
     override fun onEnterStandby() {
         Log.i(tag, "Device entered standby mode - pausing background operations")
         synchronized(standbyListeners) {
             standbyListeners.forEach { it.onEnterStandby() }
         }
     }
-    
+
     override fun onExitStandby() {
         Log.i(tag, "Device exited standby mode - resuming background operations")
         synchronized(standbyListeners) {
             standbyListeners.forEach { it.onExitStandby() }
         }
     }
-    
+
     /**
      * Register a listener to be notified of standby state changes.
      */
@@ -71,7 +67,7 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
             }
         }
     }
-    
+
     /**
      * Unregister a listener from standby state changes.
      */
@@ -81,7 +77,7 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
             Log.d(tag, "Unregistered standby listener: ${listener.javaClass.simpleName}")
         }
     }
-    
+
     /**
      * Interface for components that want to be notified of standby state changes.
      */

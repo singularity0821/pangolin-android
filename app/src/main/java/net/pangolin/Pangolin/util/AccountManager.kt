@@ -2,14 +2,20 @@ package net.pangolin.Pangolin.util
 
 import android.content.Context
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class AccountManager private constructor(private val context: Context) {
+@Singleton
+class AccountManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
     private val tag = "AccountManager"
     
     private val _store = MutableStateFlow(AccountStore())
@@ -180,16 +186,5 @@ class AccountManager private constructor(private val context: Context) {
             dir.mkdirs()
         }
         return File(dir, "accounts.json")
-    }
-
-    companion object {
-        @Volatile
-        private var instance: AccountManager? = null
-
-        fun getInstance(context: Context): AccountManager {
-            return instance ?: synchronized(this) {
-                instance ?: AccountManager(context.applicationContext).also { instance = it }
-            }
-        }
     }
 }

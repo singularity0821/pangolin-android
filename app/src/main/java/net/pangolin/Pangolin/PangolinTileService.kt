@@ -1,12 +1,12 @@
 package net.pangolin.Pangolin
 
 import android.app.PendingIntent
-import android.content.ComponentName
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,20 +14,17 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import net.pangolin.Pangolin.util.APIClient
 import net.pangolin.Pangolin.util.AccountManager
-import net.pangolin.Pangolin.util.AndroidFingerprintCollector
-import net.pangolin.Pangolin.util.AuthManager
-import net.pangolin.Pangolin.util.ConfigManager
-import net.pangolin.Pangolin.util.FingerprintManager
-import net.pangolin.Pangolin.util.SecretManager
-import net.pangolin.Pangolin.util.SocketManager
 import net.pangolin.Pangolin.util.TunnelManager
-import java.io.File
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class PangolinTileService : TileService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var stateCollectionJob: Job? = null
+
+    @Inject lateinit var tunnelManager: TunnelManager
+    @Inject lateinit var accountManager: AccountManager
 
     override fun onStartListening() {
         super.onStartListening()
@@ -49,8 +46,7 @@ class PangolinTileService : TileService() {
         super.onClick()
 
         serviceScope.launch {
-            val tunnelManager = getOrCreateTunnelManager()
-            if (tunnelManager == null) {
+            if (accountManager.accounts.isEmpty()) {
                 openMainActivity()
                 return@launch
             }
@@ -65,9 +61,6 @@ class PangolinTileService : TileService() {
                     }
                     tunnelManager.connect()
                 }
-                else -> {
-                    // No action possible in the current transient state.
-                }
             }
 
             updateTileState(
@@ -80,8 +73,10 @@ class PangolinTileService : TileService() {
     private fun startStateObservation() {
         stateCollectionJob?.cancel()
 
-        val tunnelManager = getOrCreateTunnelManager()
-        if (tunnelManager == null) {
+        // Avoid forcing TunnelManager (and its native GoBackend) to initialize
+        // when the user isn't logged in yet — the tile just shows the inactive
+        // state until they sign in.
+        if (accountManager.accounts.isEmpty()) {
             updateTileState(isEnabled = false)
             return
         }
@@ -129,55 +124,6 @@ class PangolinTileService : TileService() {
             @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
         }
-    }
-
-    private fun getOrCreateTunnelManager(): TunnelManager? {
-        TunnelManager.getInstance()?.let { return it }
-
-        val appContext = applicationContext
-        val accountManager = AccountManager.getInstance(appContext)
-        if (accountManager.accounts.isEmpty()) {
-            return null
-        }
-
-        val secretManager = SecretManager.getInstance(appContext)
-        val configManager = ConfigManager.getInstance(appContext)
-        val socketManager = (application as? PangolinApplication)?.socketManager
-            ?: SocketManager(File(appContext.filesDir, "pangolin.sock").absolutePath)
-
-        val versionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        } catch (_: Exception) {
-            "1.0.0"
-        }
-
-        val apiClient = APIClient("https://app.pangolin.net", versionName = versionName)
-        val authManager = AuthManager(
-            context = appContext,
-            apiClient = apiClient,
-            configManager = configManager,
-            accountManager = accountManager,
-            secretManager = secretManager
-        )
-        val fingerprintManager = FingerprintManager(
-            appContext,
-            socketManager,
-            AndroidFingerprintCollector(appContext)
-        )
-
-        val tunnelManager = TunnelManager.getInstance(
-            context = appContext,
-            authManager = authManager,
-            accountManager = accountManager,
-            secretManager = secretManager,
-            configManager = configManager,
-            socketManager = socketManager,
-            fingerprintManager = fingerprintManager
-        )
-        authManager.tunnelManager = tunnelManager
-
-        requestListeningState(this, ComponentName(this, PangolinTileService::class.java))
-        return tunnelManager
     }
 
     companion object {

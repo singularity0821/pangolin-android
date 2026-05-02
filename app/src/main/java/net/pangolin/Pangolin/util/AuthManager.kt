@@ -2,10 +2,14 @@ package net.pangolin.Pangolin.util
 
 import android.content.Context
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Provider
+import javax.inject.Singleton
 
 sealed class AuthError : Exception() {
     object Unauthenticated : AuthError()
@@ -28,15 +32,20 @@ sealed class AuthError : Exception() {
 
 
 
-class AuthManager(
-    private val context: Context,
+@Singleton
+class AuthManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     val apiClient: APIClient,
     val configManager: ConfigManager,
     val accountManager: AccountManager,
     val secretManager: SecretManager,
-    var tunnelManager: TunnelManager? = null,
+    // Use Provider to break the AuthManager <-> TunnelManager dependency cycle.
+    private val tunnelManagerProvider: Provider<TunnelManager>,
 ) {
     private val tag = "AuthManager"
+
+    // Lazily resolve TunnelManager only when actually needed (during account/org switches).
+    private val tunnelManager: TunnelManager? get() = tunnelManagerProvider.get()
 
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()

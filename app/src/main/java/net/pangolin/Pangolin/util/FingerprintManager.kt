@@ -2,6 +2,7 @@ package net.pangolin.Pangolin.util
 
 import android.content.Context
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,11 +12,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import net.pangolin.Pangolin.PangolinApplication
 import net.pangolin.Pangolin.util.SocketManager
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class FingerprintManager(
-    private val context: Context,
+@Singleton
+class FingerprintManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val socketManager: SocketManager,
-    private val collector: AndroidFingerprintCollector
+    private val collector: AndroidFingerprintCollector,
 ) : PangolinApplication.StandbyListener {
     private val tag = "FingerprintManager"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

@@ -5,10 +5,16 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.security.KeyStore
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class SecretManager private constructor(context: Context) {
+@Singleton
+class SecretManager @Inject constructor(
+    @ApplicationContext context: Context,
+) {
     private val tag = "SecretManager"
     private val prefsFileName = "pangolin_secrets"
     
@@ -119,16 +125,5 @@ class SecretManager private constructor(context: Context) {
 
     fun getSessionToken(userId: String): String? {
         return getSecret("session-token-$userId")
-    }
-
-    companion object {
-        @Volatile
-        private var instance: SecretManager? = null
-
-        fun getInstance(context: Context): SecretManager {
-            return instance ?: synchronized(this) {
-                instance ?: SecretManager(context.applicationContext).also { instance = it }
-            }
-        }
     }
 }

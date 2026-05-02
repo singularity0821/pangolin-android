@@ -11,18 +11,18 @@ import android.text.method.LinkMovementMethod
 import android.text.style.URLSpan
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.databinding.ActivityLoginBinding
-import net.pangolin.Pangolin.util.APIClient
 import net.pangolin.Pangolin.util.AccountManager
 import net.pangolin.Pangolin.util.AuthManager
-import net.pangolin.Pangolin.util.ConfigManager
-import net.pangolin.Pangolin.util.SecretManager
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginBinding
-    private lateinit var accountManager: AccountManager
-    private lateinit var authManager: AuthManager
+    @Inject lateinit var accountManager: AccountManager
+    @Inject lateinit var authManager: AuthManager
     private var showingSelfHostedInput = false
 
     companion object {
@@ -34,26 +34,6 @@ class LoginActivity : AppCompatActivity() {
         
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Initialize account manager
-        accountManager = AccountManager.getInstance(applicationContext)
-        
-        // Initialize auth manager to check for auto-start flag
-        val secretManager = SecretManager.getInstance(applicationContext)
-        val configManager = ConfigManager.getInstance(applicationContext)
-        val versionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        } catch (e: Exception) {
-            "1.0.0"
-        }
-        val apiClient = APIClient("https://app.pangolin.net", versionName = versionName)
-        authManager = AuthManager(
-            context = applicationContext,
-            apiClient = apiClient,
-            configManager = configManager,
-            accountManager = accountManager,
-            secretManager = secretManager
-        )
 
         // Set theme-aware logo
         setThemeAwareLogo()

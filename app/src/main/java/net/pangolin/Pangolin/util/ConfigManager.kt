@@ -4,11 +4,17 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceManager
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class ConfigManager private constructor(context: Context) {
+@Singleton
+class ConfigManager @Inject constructor(
+    @ApplicationContext context: Context,
+) {
     private val tag = "ConfigManager"
     private val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
 
@@ -69,16 +75,4 @@ class ConfigManager private constructor(context: Context) {
     fun cleanup() {
         prefs.unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
     }
-
-    companion object {
-        @Volatile
-        private var instance: ConfigManager? = null
-
-        fun getInstance(context: Context): ConfigManager {
-            return instance ?: synchronized(this) {
-                instance ?: ConfigManager(context.applicationContext).also { instance = it }
-            }
-        }
-    }
-
 }

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.biometric.BiometricManager
 import android.os.Build
+import dagger.hilt.android.qualifiers.ApplicationContext
 import net.pangolin.Pangolin.util.Fingerprint
 import net.pangolin.Pangolin.util.Postures
 import java.security.MessageDigest
@@ -13,9 +14,12 @@ import java.util.UUID
 import android.provider.Settings
 import java.io.File
 import androidx.core.content.edit
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class AndroidFingerprintCollector(
-    private val context: Context
+@Singleton
+class AndroidFingerprintCollector @Inject constructor(
+    @ApplicationContext private val context: Context,
 ) {
     fun gatherFingerprintInfo(): Fingerprint {
         val arch = System.getProperty("os.arch") ?: "unknown"

@@ -12,11 +12,14 @@ import androidx.preference.PreferenceFragmentCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import net.pangolin.Pangolin.databinding.SettingsActivityBinding
 import net.pangolin.Pangolin.util.TunnelManager
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class SettingsActivity : BaseNavigationActivity() {
 
     private lateinit var binding: SettingsActivityBinding
@@ -42,7 +45,9 @@ class SettingsActivity : BaseNavigationActivity() {
         return R.id.nav_settings
     }
 
+    @AndroidEntryPoint
     class SettingsFragment : PreferenceFragmentCompat() {
+        @Inject lateinit var tunnelManager: TunnelManager
         private var isTunnelActive = false
         
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -68,13 +73,10 @@ class SettingsActivity : BaseNavigationActivity() {
             
             // Observe tunnel state and disable settings when tunnel is active
             lifecycleScope.launch {
-                val tunnelManager = TunnelManager.getInstance()
-                if (tunnelManager != null) {
-                    tunnelManager.tunnelState.collectLatest { state ->
-                        isTunnelActive = state.isServiceRunning || state.isConnecting
-                        updatePreferencesEnabled()
-                        updateLockInfo()
-                    }
+                tunnelManager.tunnelState.collectLatest { state ->
+                    isTunnelActive = state.isServiceRunning || state.isConnecting
+                    updatePreferencesEnabled()
+                    updateLockInfo()
                 }
             }
         }

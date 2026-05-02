@@ -17,39 +17,29 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 import net.pangolin.Pangolin.databinding.ActivityMainBinding
 import net.pangolin.Pangolin.databinding.ContentMainBinding
-import net.pangolin.Pangolin.util.APIClient
 import net.pangolin.Pangolin.util.AuthManager
 import net.pangolin.Pangolin.util.AccountManager
-import net.pangolin.Pangolin.util.AndroidFingerprintCollector
-import net.pangolin.Pangolin.util.ConfigManager
-import net.pangolin.Pangolin.util.FingerprintManager
-import net.pangolin.Pangolin.util.SecretManager
-import net.pangolin.Pangolin.util.SocketManager
 import net.pangolin.Pangolin.util.TunnelManager
 import net.pangolin.Pangolin.util.TunnelState
 import net.pangolin.Pangolin.util.accountDisplayName
 import net.pangolin.Pangolin.util.userDisplayName
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class MainActivity : BaseNavigationActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var contentBinding: ContentMainBinding
 
-    // Authentication managers
-    private lateinit var apiClient: APIClient
-    private lateinit var authManager: AuthManager
-    private lateinit var accountManager: AccountManager
-    private lateinit var configManager: ConfigManager
-    private lateinit var secretManager: SecretManager
-    private lateinit var socketManager: SocketManager
-    private lateinit var fingerprintManager: FingerprintManager
-    
-    // Tunnel manager
-    private lateinit var tunnelManager: TunnelManager
+    @Inject lateinit var authManager: AuthManager
+    @Inject lateinit var accountManager: AccountManager
+    @Inject lateinit var tunnelManager: TunnelManager
+
     private var pendingTileConnectRequest = false
 
     // VPN permission launcher
@@ -92,27 +82,9 @@ class MainActivity : BaseNavigationActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Get version name
-        val versionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        } catch (e: Exception) {
-            "1.0.0"
-        }
+        // Initialize dependencies (shared with PangolinTileService)
+        // Managers are now centrally managed in PangolinApplication
 
-        // Initialize authentication managers first (before navigation setup)
-        secretManager = SecretManager.getInstance(applicationContext)
-        accountManager = AccountManager.getInstance(applicationContext)
-        configManager = ConfigManager.getInstance(applicationContext)
-        apiClient = APIClient("https://app.pangolin.net", versionName = versionName)
-        socketManager = (application as PangolinApplication).socketManager
-        fingerprintManager = FingerprintManager(applicationContext, socketManager, AndroidFingerprintCollector(applicationContext))
-        authManager = AuthManager(
-            context = applicationContext,
-            apiClient = apiClient,
-            configManager = configManager,
-            accountManager = accountManager,
-            secretManager = secretManager
-        )
         // Check if there are any accounts - if not, go to LoginActivity
         val accounts = accountManager.accounts
         // // log the accounts for debugging
@@ -126,20 +98,6 @@ class MainActivity : BaseNavigationActivity() {
 
         // Setup navigation using base class
         setupNavigation(binding.drawerLayout, binding.navView, binding.toolbar)
-
-        // Initialize TunnelManager singleton
-        tunnelManager = TunnelManager.getInstance(
-            context = applicationContext,
-            authManager = authManager,
-            accountManager = accountManager,
-            secretManager = secretManager,
-            configManager = configManager,
-            socketManager = socketManager,
-            fingerprintManager = fingerprintManager,
-        )
-
-        // Set tunnelManager on authManager so it can disconnect when switching accounts
-        authManager.tunnelManager = tunnelManager
 
         // Bind content layout
         contentBinding = ContentMainBinding.bind(binding.content.root)
