@@ -43,6 +43,12 @@ android {
     ndkVersion = "29.0.14206865"
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+    }
+}
+
 dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
