@@ -129,12 +129,16 @@ class StatusPollingManager(
                 } catch (e: SocketError.SocketDoesNotExist) {
                     Log.w(tag, "Socket does not exist")
                     _errorFlow.value = "Socket not available"
+                    // Do NOT set terminated = true here. Socket missing is normal during startup.
+                    _statusFlow.value = SocketStatusResponse(connected = false, terminated = false)
                 } catch (e: SocketError.ConnectionFailed) {
                     Log.w(tag, "Failed to connect to socket: ${e.message}")
                     _errorFlow.value = "Connection failed: ${e.message}"
+                    _statusFlow.value = SocketStatusResponse(connected = false, terminated = false)
                 } catch (e: Exception) {
                     Log.e(tag, "Error polling status", e)
                     _errorFlow.value = "Error: ${e.message}"
+                    _statusFlow.value = SocketStatusResponse(connected = false, terminated = false)
                 }
                 
                 // Wait before next poll

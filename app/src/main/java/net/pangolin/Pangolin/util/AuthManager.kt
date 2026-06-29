@@ -1,6 +1,8 @@
 package net.pangolin.Pangolin.util
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -96,6 +98,8 @@ class AuthManager @Inject constructor(
     private val _startDeviceAuthImmediately = MutableStateFlow(false)
     val startDeviceAuthImmediately: StateFlow<Boolean> = _startDeviceAuthImmediately.asStateFlow()
 
+    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
     private var deviceAuthJob: Job? = null
 
     init {
@@ -104,6 +108,12 @@ class AuthManager @Inject constructor(
             Log.w(tag, "API client received 401/403 - marking session as expired")
             markSessionExpired()
         }
+    }
+
+    private fun isOnline(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     suspend fun initialize() {
@@ -130,17 +140,30 @@ class AuthManager @Inject constructor(
             apiClient.updateSessionToken(token)
 
             // Health check before fetching data
-            val isHealthy = apiClient.checkHealth()
-            if (!isHealthy) {
-                Log.w(tag, "Server appears to be down")
-                _isServerDown.value = true
-                _errorMessage.value = "The server appears to be down."
-                _isAuthenticated.value = true
-                return
+            if (isOnline()) {
+                try {
+                    val isHealthy = apiClient.testConnection()
+                    if (!isHealthy) {
+                        Log.w(tag, "Server appears to be down (testConnection failed)")
+                        _isServerDown.value = true
+                        _errorMessage.value = "The server appears to be down."
+                        _isAuthenticated.value = true
+                        return
+                    }
+                    _isServerDown.value = false
+                    _errorMessage.value = null
+                } catch (e: Exception) {
+                    Log.w(tag, "Health check exception: ${e.message}, assuming server might be up but unreachable")
+                    // Don't mark as down on network exceptions, only on definitive failures
+                    _isServerDown.value = false
+                }
+            } else {
+                Log.i(tag, "Device is offline, skipping health check and marking server as 'up' (but unreachable)")
+                _isServerDown.value = false
+                if (_errorMessage.value == "The server appears to be down.") {
+                    _errorMessage.value = null
+                }
             }
-
-            _isServerDown.value = false
-            _errorMessage.value = null
 
             val user = try {
                 apiClient.getUser()
@@ -685,6 +708,12 @@ class AuthManager @Inject constructor(
             val olmIdString = secretManager.getOlmId(userId)
             if (olmIdString != null) {
                 try {
+                    // Check if server is actually reachable before trying to verify OLM
+                    if (!apiClient.testConnection()) {
+                        Log.w(tag, "Server unreachable, assuming local OLM credentials are valid for now")
+                        return
+                    }
+
                     val olm = apiClient.getUserOlm(userId, olmIdString)
 
                     // Verify the olmId and userId match
@@ -697,10 +726,15 @@ class AuthManager @Inject constructor(
                         secretManager.deleteOlmCredentials(userId)
                     }
                 } catch (e: Exception) {
-                    // If getting OLM fails, the OLM might not exist
-                    Log.e(tag, "Failed to verify OLM credentials: ${e.message}", e)
-                    // Clear invalid credentials so we can try to create new ones
-                    secretManager.deleteOlmCredentials(userId)
+                    // Only delete if it's a definitive 404 Not Found from the server
+                    if (e is APIError.HttpError && e.status == 404) {
+                        Log.e(tag, "OLM not found on server (404) - clearing local credentials")
+                        secretManager.deleteOlmCredentials(userId)
+                    } else {
+                        // For network errors or other server errors, keep local credentials
+                        Log.w(tag, "Failed to verify OLM credentials (network/server error): ${e.message}. Keeping local copy.")
+                        return
+                    }
                 }
             } else {
                 // No olmId found, clear credentials

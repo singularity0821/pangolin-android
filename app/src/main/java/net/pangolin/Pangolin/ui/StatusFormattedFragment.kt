@@ -18,13 +18,20 @@ import net.pangolin.Pangolin.MainActivity
 import net.pangolin.Pangolin.R
 import net.pangolin.Pangolin.util.SocketPeer
 import net.pangolin.Pangolin.util.SocketStatusResponse
+import net.pangolin.Pangolin.util.TunnelManager
+import net.pangolin.Pangolin.util.TunnelState
+import javax.inject.Inject
+import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * Fragment that displays the tunnel status in a native UI with cards.
  * Shows application info in a top section and individual peer cards below.
  * The status is updated automatically by collecting from the StatusPollingManager's StateFlow.
  */
+@AndroidEntryPoint
 class StatusFormattedFragment : Fragment() {
+
+    @Inject lateinit var tunnelManager: TunnelManager
 
     private var disconnectedCard: View? = null
     private var connectionStatusHeader: TextView? = null
@@ -87,11 +94,18 @@ class StatusFormattedFragment : Fragment() {
         val statusPollingManager = (activity as? StatusPollingProvider)?.getStatusPollingManager()
 
         if (statusPollingManager != null) {
-            // Collect status updates and update UI
+            // Collect overall tunnel state from TunnelManager for the header
+            viewLifecycleOwner.lifecycleScope.launch {
+                tunnelManager.tunnelState.collect { state ->
+                    updateHeaderStatus(state)
+                }
+            }
+
+            // Collect status updates for peers from Socket status
             viewLifecycleOwner.lifecycleScope.launch {
                 statusPollingManager.statusFlow.collect { status ->
                     if (status != null) {
-                        updateUI(status)
+                        updatePeersUI(status)
                     } else {
                         showNoStatus()
                     }
@@ -127,23 +141,38 @@ class StatusFormattedFragment : Fragment() {
     }
 
     /**
-     * Update the UI with the current status.
+     * Update the header part of the UI with the TunnelManager state.
      */
-    private fun updateUI(status: SocketStatusResponse) {
-        // Hide disconnected card and show status content
-        disconnectedCard?.visibility = View.GONE
-        connectionStatusHeader?.visibility = View.VISIBLE
-        appInfoCard?.visibility = View.VISIBLE
-        sitesHeader?.visibility = View.VISIBLE
-        
+    private fun updateHeaderStatus(state: TunnelState) {
+        // Hide disconnected card and show status content if service is running or connecting
+        if (state.isServiceRunning || state.isConnecting) {
+            disconnectedCard?.visibility = View.GONE
+            connectionStatusHeader?.visibility = View.VISIBLE
+            appInfoCard?.visibility = View.VISIBLE
+            sitesHeader?.visibility = View.VISIBLE
+
+            // Update status with indicator
+            val isConnected = state.isFullyConnected || state.isRegistered
+            val statusText = when {
+                isConnected -> "Connected"
+                state.statusMessage == "Waiting for network..." -> "Waiting for network..."
+                state.errorMessage != null && !state.isConnecting -> "Error"
+                else -> state.statusMessage
+            }
+            statusValue?.text = statusText
+            updateStatusIndicator(isConnected, state.errorMessage != null && !state.isConnecting)
+        } else {
+            showNoStatus()
+        }
+    }
+
+    /**
+     * Update the peer part of the UI with the current socket status.
+     */
+    private fun updatePeersUI(status: SocketStatusResponse) {
         // Update application info
         agentValue?.text = status.agent ?: "—"
         versionValue?.text = status.version ?: "—"
-
-        // Update status with indicator
-        val statusText = if (status.connected) "Connected" else "Disconnected"
-        statusValue?.text = statusText
-        updateStatusIndicator(status.connected)
 
         // Update organization
         organizationValue?.text = status.orgId ?: "—"
@@ -155,12 +184,12 @@ class StatusFormattedFragment : Fragment() {
     /**
      * Update the status indicator color based on connection state.
      */
-    private fun updateStatusIndicator(connected: Boolean) {
+    private fun updateStatusIndicator(connected: Boolean, hasError: Boolean) {
         statusIndicator?.let { indicator ->
-            val color = if (connected) {
-                Color.parseColor("#4CAF50") // Green
-            } else {
-                Color.parseColor("#F44336") // Red
+            val color = when {
+                connected -> Color.parseColor("#4CAF50") // Green
+                hasError -> Color.parseColor("#F44336") // Red
+                else -> Color.parseColor("#FF9800") // Orange for connecting/registering/waiting
             }
 
             val drawable = indicator.background as? GradientDrawable

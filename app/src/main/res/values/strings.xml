@@ -12,4 +12,14 @@
     
     <!-- Login -->
     <string name="terms_and_privacy_text"><![CDATA[By continuing, you agree to our <a href="https://pangolin.net/tos">Terms of Service</a> and <a href="https://pangolin.net/privacy">Privacy Policy</a>.]]></string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Connection Status</string>
+    <string name="notification_channel_description">Notifications about VPN connection status</string>
+    <string name="notification_reconnecting_title">Pangolin VPN</string>
+    <string name="notification_reconnecting_text">Reconnecting to server (Attempt %1$d/%2$d)…</string>
+    <string name="notification_disconnected_title">Pangolin VPN Disconnected</string>
+    <string name="notification_reconnect_failed">Failed to reconnect after %1$d attempts</string>
+    <string name="notification_waiting_network_title">Pangolin VPN</string>
+    <string name="notification_waiting_network_text">Waiting for network connectivity…</string>
 </resources>

@@ -19,6 +19,7 @@ import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 import net.pangolin.Pangolin.databinding.ActivityMainBinding
@@ -41,6 +42,17 @@ class MainActivity : BaseNavigationActivity() {
     @Inject lateinit var tunnelManager: TunnelManager
 
     private var pendingTileConnectRequest = false
+
+    // Notification permission launcher
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.i("MainActivity", "Notification permission granted")
+        } else {
+            Log.w("MainActivity", "Notification permission denied")
+        }
+    }
 
     // VPN permission launcher
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -81,6 +93,11 @@ class MainActivity : BaseNavigationActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        
+        // Request notification permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         // Initialize dependencies (shared with PangolinTileService)
         // Managers are now centrally managed in PangolinApplication
@@ -293,8 +310,11 @@ class MainActivity : BaseNavigationActivity() {
 
         // Observe server down status
         lifecycleScope.launch {
-            authManager.isServerDown.collect { isServerDown ->
-                contentBinding.serverDownBanner.visibility = if (isServerDown) View.VISIBLE else View.GONE
+            combine(authManager.isServerDown, tunnelManager.tunnelState) { isServerDown, tunnelState ->
+                val isConnected = tunnelState.isFullyConnected || tunnelState.isRegistered
+                isServerDown && !isConnected && !tunnelState.isConnecting
+            }.collect { shouldShowBanner ->
+                contentBinding.serverDownBanner.visibility = if (shouldShowBanner) View.VISIBLE else View.GONE
                 updateConnectionControls()
                 updateErrorMessage()
             }
@@ -861,15 +881,15 @@ class MainActivity : BaseNavigationActivity() {
 
     private fun updateTunnelState(newState: TunnelState) {
         runOnUiThread {
+            // Determine the connection status for UI logic
+            val isConnected = newState.isFullyConnected || newState.isRegistered
+            
             // Determine the status text based on the connection state
             val statusText = when {
-                newState.errorMessage != null -> "Error"
-                newState.isFullyConnected -> "Connected"
-                newState.isRegistered -> "Connected"
-                newState.isSocketConnected && !newState.isRegistered -> "Registering"
-                newState.isServiceRunning && !newState.isSocketConnected -> "Connecting"
-                newState.isConnecting -> "Connecting"
-                else -> "Disconnected"
+                isConnected -> "Connected"
+                newState.statusMessage == "Waiting for network..." -> "Waiting for network..."
+                newState.errorMessage != null && !newState.isConnecting -> "Error"
+                else -> newState.statusMessage
             }
             
             // Update status text
@@ -877,9 +897,8 @@ class MainActivity : BaseNavigationActivity() {
 
             // Update status dot drawable based on connection state
             val dotDrawable = when {
+                isConnected -> R.drawable.status_dot_green
                 newState.errorMessage != null -> R.drawable.status_dot_red
-                newState.isFullyConnected -> R.drawable.status_dot_green
-                newState.isRegistered -> R.drawable.status_dot_green
                 newState.isSocketConnected && !newState.isRegistered -> R.drawable.status_dot_orange
                 newState.isServiceRunning && !newState.isSocketConnected -> R.drawable.status_dot_orange
                 newState.isConnecting -> R.drawable.status_dot_orange
@@ -889,7 +908,7 @@ class MainActivity : BaseNavigationActivity() {
             contentBinding.statusDot.setBackgroundResource(dotDrawable)
 
             // Update error message
-            if (newState.errorMessage != null) {
+            if (newState.errorMessage != null && !isConnected) {
                 contentBinding.tvError.text = "Error: ${newState.errorMessage}"
                 contentBinding.tvError.visibility = View.VISIBLE
             } else {
