@@ -225,6 +225,7 @@ class SettingsActivity : BaseNavigationActivity() {
                             if (isSecondary && newValue.isEmpty()) {
                                 true // allow empty secondary DNS
                             } else {
+                                @Suppress("DEPRECATION")
                                 Patterns.IP_ADDRESS.matcher(newValue).matches()
                             }
                         } else {

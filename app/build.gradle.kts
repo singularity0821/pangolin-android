@@ -14,8 +14,8 @@ android {
         applicationId = "net.pangolin.Pangolin"
         minSdk = 24
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.1.12"
+        versionCode = 19
+        versionName = "0.1.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -26,7 +26,7 @@ android {
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
+                "proguard-rules.pro"
             )
         }
     }

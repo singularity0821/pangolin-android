@@ -10,6 +10,7 @@ import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.URLSpan
 import android.view.View
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.databinding.ActivityLoginBinding
@@ -25,12 +26,28 @@ class LoginActivity : AppCompatActivity() {
     @Inject lateinit var authManager: AuthManager
     private var showingSelfHostedInput = false
 
+    private val onBackPressedCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            if (showingSelfHostedInput) {
+                showHostingSelection()
+            } else {
+                // Only allow back if there are accounts
+                if (accountManager.accounts.isNotEmpty()) {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        }
+    }
+
     companion object {
         const val EXTRA_HOSTNAME = "extra_hostname"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
         
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -50,7 +67,7 @@ class LoginActivity : AppCompatActivity() {
         // Setup navigation icon click only if there are accounts
         if (hasAccounts) {
             binding.toolbar.setNavigationOnClickListener {
-                onBackPressed()
+                onBackPressedDispatcher.onBackPressed()
             }
         }
 
@@ -146,17 +163,6 @@ class LoginActivity : AppCompatActivity() {
         normalized = normalized.trimEnd('/')
         
         return normalized
-    }
-
-    override fun onBackPressed() {
-        if (showingSelfHostedInput) {
-            showHostingSelection()
-        } else {
-            // Only allow back if there are accounts
-            if (accountManager.accounts.isNotEmpty()) {
-                super.onBackPressed()
-            }
-        }
     }
 
     private fun removeUnderlineFromLinks(spanned: Spanned): SpannableString {

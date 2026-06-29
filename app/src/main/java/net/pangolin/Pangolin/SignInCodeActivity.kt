@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsCallback
@@ -19,6 +20,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsServiceConnection
 import androidx.browser.customtabs.CustomTabsSession
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -50,6 +52,20 @@ class SignInCodeActivity : AppCompatActivity() {
     private var includeUsernameInDeviceURL = false
     private var isAutoStartFlow = false
 
+    private val onBackPressedCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            // Reset flags
+            includeUsernameInDeviceURL = false
+            isAutoStartFlow = false
+            
+            authManager.cancelDeviceAuth()
+            
+            isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            isEnabled = true
+        }
+    }
+
     // Chrome Custom Tabs
     private var customTabsClient: CustomTabsClient? = null
     private var customTabsSession: CustomTabsSession? = null
@@ -62,6 +78,7 @@ class SignInCodeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
 
         binding = ActivitySignInCodeBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -90,7 +107,7 @@ class SignInCodeActivity : AppCompatActivity() {
 
         // Setup navigation icon click
         binding.toolbar.setNavigationOnClickListener {
-            onBackPressed()
+            onBackPressedDispatcher.onBackPressed()
         }
 
         // Set theme-aware logo
@@ -197,7 +214,7 @@ class SignInCodeActivity : AppCompatActivity() {
                 val codeWithoutHyphen = currentCode?.replace("-", "") ?: ""
                 if (codeWithoutHyphen.isNotEmpty()) {
                     val loginUrl = "$hostname/auth/login/device?code=$codeWithoutHyphen"
-                    customTabsSession?.mayLaunchUrl(Uri.parse(loginUrl), null, null)
+                    customTabsSession?.mayLaunchUrl(loginUrl.toUri(), null, null)
                 }
             }
 
@@ -215,7 +232,7 @@ class SignInCodeActivity : AppCompatActivity() {
     }
 
     private fun getCustomTabsPackage(): String? {
-        val activityIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        val activityIntent = Intent(Intent.ACTION_VIEW, "https://example.com".toUri())
         val resolvedActivityList = packageManager.queryIntentActivities(activityIntent, 0)
         
         val packagesSupportingCustomTabs = mutableListOf<String>()
@@ -417,12 +434,12 @@ class SignInCodeActivity : AppCompatActivity() {
         hasLaunchedBrowser = true
         
         try {
-            launchCustomTab(Uri.parse(autoOpenURL))
+            launchCustomTab(autoOpenURL.toUri())
         } catch (e: Exception) {
             Log.e(tag, "Failed to open in-app browser: ${e.message}", e)
             // Fallback to system browser if Custom Tabs fails
             try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(autoOpenURL))
+                val intent = Intent(Intent.ACTION_VIEW, autoOpenURL.toUri())
                 startActivity(intent)
             } catch (fallbackError: Exception) {
                 Log.e(tag, "Failed to open system browser: ${fallbackError.message}", fallbackError)
@@ -523,15 +540,6 @@ class SignInCodeActivity : AppCompatActivity() {
         customTabsConnection = null
         customTabsClient = null
         customTabsSession = null
-    }
-
-    override fun onBackPressed() {
-        // Reset flags
-        includeUsernameInDeviceURL = false
-        isAutoStartFlow = false
-        
-        authManager.cancelDeviceAuth()
-        super.onBackPressed()
     }
 
     private fun setThemeAwareLogo() {

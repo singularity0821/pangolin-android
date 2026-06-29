@@ -3,6 +3,7 @@ package net.pangolin.Pangolin.util
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -23,22 +24,23 @@ class CrashHandler private constructor(
         private const val TAG = "CrashHandler"
         private const val LOG_FILE_NAME = "pangolin.log"
         
-        @Volatile
-        private var instance: CrashHandler? = null
+        private var isInitialized = false
         
         /**
          * Initialize the crash handler. This should be called once in the Application's onCreate.
          */
         fun initialize(context: Context) {
-            if (instance == null) {
-                synchronized(this) {
-                    if (instance == null) {
-                        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-                        instance = CrashHandler(context.applicationContext, defaultHandler)
-                        Thread.setDefaultUncaughtExceptionHandler(instance)
-                        Log.d(TAG, "CrashHandler initialized")
-                    }
-                }
+            if (isInitialized) return
+            
+            synchronized(this) {
+                if (isInitialized) return
+                
+                val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+                val crashHandler = CrashHandler(context.applicationContext, defaultHandler)
+                Thread.setDefaultUncaughtExceptionHandler(crashHandler)
+                
+                isInitialized = true
+                Log.d(TAG, "CrashHandler initialized")
             }
         }
     }
@@ -77,7 +79,14 @@ class CrashHandler private constructor(
         sb.appendLine("FATAL EXCEPTION - APP CRASH")
         sb.appendLine(separator)
         sb.appendLine("Timestamp: $timestamp")
-        sb.appendLine("Thread: ${thread.name} (ID: ${thread.id})")
+        // Thread.id is deprecated from API 34+, but threadId() is only available from API 36+
+        val threadId = if (Build.VERSION.SDK_INT >= 36) {
+            thread.threadId()
+        } else {
+            @Suppress("DEPRECATION")
+            thread.id
+        }
+        sb.appendLine("Thread: ${thread.name} (ID: $threadId)")
         sb.appendLine()
         
         // Device and app information
@@ -94,7 +103,7 @@ class CrashHandler private constructor(
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             sb.appendLine("App Information:")
             sb.appendLine("  Package: ${context.packageName}")
-            sb.appendLine("  Version: ${packageInfo.versionName} (${packageInfo.versionCode})")
+            sb.appendLine("  Version: ${packageInfo.versionName} (${PackageInfoCompat.getLongVersionCode(packageInfo)})")
             sb.appendLine()
         } catch (e: Exception) {
             Log.w(TAG, "Could not get package info", e)
