@@ -22,4 +22,6 @@
     <string name="notification_reconnect_failed">Failed to reconnect after %1$d attempts</string>
     <string name="notification_waiting_network_title">Pangolin VPN</string>
     <string name="notification_waiting_network_text">Waiting for network connectivity…</string>
+    <string name="notification_connecting_title">Pangolin VPN</string>
+    <string name="notification_connecting_text">Establishing secure connection…</string>
 </resources>

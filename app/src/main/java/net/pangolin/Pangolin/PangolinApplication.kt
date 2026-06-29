@@ -23,6 +23,10 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
     // List of listeners that want to be notified of standby changes
     private val standbyListeners = mutableListOf<StandbyListener>()
 
+    // Current foreground state
+    private var _isAppInForeground = false
+    val isAppInForeground: Boolean get() = _isAppInForeground
+
     override fun onCreate() {
         super.onCreate()
 
@@ -44,6 +48,7 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
 
     override fun onEnterStandby() {
         Log.i(tag, "Device entered standby mode - pausing background operations")
+        _isAppInForeground = false
         synchronized(standbyListeners) {
             standbyListeners.forEach { it.onEnterStandby() }
         }
@@ -51,6 +56,7 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
 
     override fun onExitStandby() {
         Log.i(tag, "Device exited standby mode - resuming background operations")
+        _isAppInForeground = true
         synchronized(standbyListeners) {
             standbyListeners.forEach { it.onExitStandby() }
         }

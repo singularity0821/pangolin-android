@@ -69,6 +69,31 @@ class NotificationHelper @Inject constructor(
         }
     }
 
+    fun showConnectingNotification() {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent = PendingIntent.getActivity(
+            context, 0, intent, PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_qs_pangolin)
+            .setColor(ContextCompat.getColor(context, R.color.pangolin_primary))
+            .setContentTitle(context.getString(R.string.notification_connecting_title))
+            .setContentText(context.getString(R.string.notification_connecting_text))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setAutoCancel(false)
+
+        try {
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
+        } catch (e: SecurityException) {
+            // Handle missing permission on Android 13+
+        }
+    }
+
     fun showWaitingForNetworkNotification() {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK

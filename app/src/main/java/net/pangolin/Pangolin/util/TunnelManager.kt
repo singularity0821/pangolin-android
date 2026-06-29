@@ -21,6 +21,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.pangolin.Pangolin.R
+import net.pangolin.Pangolin.PangolinApplication
 import net.pangolin.Pangolin.PacketTunnel.GoBackend
 import net.pangolin.Pangolin.PacketTunnel.InitConfig
 import net.pangolin.Pangolin.PacketTunnel.Tunnel
@@ -303,6 +304,12 @@ class TunnelManager @Inject constructor(
             statusMessage = "Starting VPN service...",
             errorMessage = null
         ))
+
+        // Show notification if app is in background
+        val app = context.applicationContext as? PangolinApplication
+        if (app?.isAppInForeground == false) {
+            notificationHelper.showConnectingNotification()
+        }
 
         try {
             // Get current user and credentials
