@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="connect"
+        android:enabled="true"
+        android:icon="@drawable/ic_connect"
+        android:shortcutShortLabel="@string/automation_connect_label"
+        android:shortcutLongLabel="@string/automation_connect_label">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="net.pangolin.Pangolin"
+            android:targetClass="net.pangolin.Pangolin.AutomationConnectActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="disconnect"
+        android:enabled="true"
+        android:icon="@drawable/ic_disconnect"
+        android:shortcutShortLabel="@string/automation_disconnect_label"
+        android:shortcutLongLabel="@string/automation_disconnect_label">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="net.pangolin.Pangolin"
+            android:targetClass="net.pangolin.Pangolin.AutomationDisconnectActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="toggle"
+        android:enabled="true"
+        android:icon="@drawable/ic_toggle"
+        android:shortcutShortLabel="@string/automation_toggle_label"
+        android:shortcutLongLabel="@string/automation_toggle_label">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="net.pangolin.Pangolin"
+            android:targetClass="net.pangolin.Pangolin.AutomationToggleActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>

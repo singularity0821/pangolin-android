@@ -81,6 +81,46 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <activity
+            android:name=".AutomationActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="net.pangolin.Pangolin.ACTION_CONNECT" />
+                <action android:name="net.pangolin.Pangolin.ACTION_DISCONNECT" />
+                <action android:name="net.pangolin.Pangolin.ACTION_TOGGLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".AutomationConnectActivity"
+            android:label="@string/automation_connect_label"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true">
+        </activity>
+
+        <activity
+            android:name=".AutomationDisconnectActivity"
+            android:label="@string/automation_disconnect_label"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true">
+        </activity>
+
+        <activity
+            android:name=".AutomationToggleActivity"
+            android:label="@string/automation_toggle_label"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true">
         </activity>
 
         <provider

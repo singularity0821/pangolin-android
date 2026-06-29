@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">Pangolin</string>
     <string name="quick_tile_label">Pangolin</string>
-    <string name="quick_tile_state_on">Tunnel on</string>
-    <string name="quick_tile_state_off">Tunnel off</string>
+    <string name="quick_tile_state_on">Connect tunnel</string>
+    <string name="quick_tile_state_off">Disconnect tunnel</string>
     <string name="permission_label">control Pangolin tunnels</string>
     <string name="permission_description">control Pangolin tunnels, enabling and disabling tunnels at will.</string>
 
@@ -15,13 +15,18 @@
 
     <!-- Notifications -->
     <string name="notification_channel_name">Connection Status</string>
-    <string name="notification_channel_description">Notifications about VPN connection status</string>
-    <string name="notification_reconnecting_title">Pangolin VPN</string>
+    <string name="notification_channel_description">Notifications about tunnel connection status</string>
+    <string name="notification_reconnecting_title">Pangolin tunnel</string>
     <string name="notification_reconnecting_text">Reconnecting to server (Attempt %1$d/%2$d)…</string>
     <string name="notification_disconnected_title">Pangolin VPN Disconnected</string>
     <string name="notification_reconnect_failed">Failed to reconnect after %1$d attempts</string>
-    <string name="notification_waiting_network_title">Pangolin VPN</string>
+    <string name="notification_waiting_network_title">Pangolin tunnel</string>
     <string name="notification_waiting_network_text">Waiting for network connectivity…</string>
-    <string name="notification_connecting_title">Pangolin VPN</string>
+    <string name="notification_connecting_title">Pangolin tunnel</string>
     <string name="notification_connecting_text">Establishing secure connection…</string>
+
+    <!-- Automation -->
+    <string name="automation_connect_label">Connect tunnel</string>
+    <string name="automation_disconnect_label">Disconnect tunnel</string>
+    <string name="automation_toggle_label">Toggle tunnel connection</string>
 </resources>

@@ -3,6 +3,9 @@ package net.pangolin.Pangolin
 import android.app.Application
 import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import net.pangolin.Pangolin.util.CrashHandler
 import net.pangolin.Pangolin.util.StandbyDetector
 
@@ -19,6 +22,9 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
 
     private val tag = "PangolinApplication"
     private var standbyDetector: StandbyDetector? = null
+
+    // App-wide coroutine scope for tasks that should outlive any activity
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // List of listeners that want to be notified of standby changes
     private val standbyListeners = mutableListOf<StandbyListener>()
