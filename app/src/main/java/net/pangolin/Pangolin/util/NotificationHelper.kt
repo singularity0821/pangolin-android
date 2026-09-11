@@ -7,11 +7,14 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.color.MaterialColors
 import dagger.hilt.android.qualifiers.ApplicationContext
+import net.pangolin.Pangolin.AutomationActivity
+import net.pangolin.Pangolin.AutomationDisconnectActivity
 import net.pangolin.Pangolin.MainActivity
 import net.pangolin.Pangolin.R
 import javax.inject.Inject
@@ -61,12 +64,9 @@ class NotificationHelper @Inject constructor(
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
+            .addAction(createDisconnectAction(R.string.notification_action_cancel))
 
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
-        } catch (e: SecurityException) {
-            // Handle missing permission on Android 13+
-        }
+        postNotification(builder.build())
     }
 
     fun showConnectingNotification() {
@@ -86,12 +86,31 @@ class NotificationHelper @Inject constructor(
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
+            .addAction(createDisconnectAction(R.string.notification_action_cancel))
 
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
-        } catch (e: SecurityException) {
-            // Handle missing permission on Android 13+
+        postNotification(builder.build())
+    }
+
+    fun showConnectedNotification() {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
+        val pendingIntent = PendingIntent.getActivity(
+            context, 0, intent, PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_qs_pangolin)
+            .setColor(ContextCompat.getColor(context, R.color.pangolin_primary))
+            .setContentTitle(context.getString(R.string.notification_connected_title))
+            .setContentText(context.getString(R.string.notification_connected_text))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .addAction(createDisconnectAction(R.string.notification_action_disconnect))
+
+        postNotification(builder.build())
     }
 
     fun showWaitingForNetworkNotification() {
@@ -111,12 +130,9 @@ class NotificationHelper @Inject constructor(
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
+            .addAction(createDisconnectAction(R.string.notification_action_cancel))
 
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
-        } catch (e: SecurityException) {
-            // Handle missing permission on Android 13+
-        }
+        postNotification(builder.build())
     }
 
     fun showDisconnectedNotification(reason: String) {
@@ -136,11 +152,38 @@ class NotificationHelper @Inject constructor(
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
-        } catch (e: SecurityException) {
-            // Handle missing permission on Android 13+
+        postNotification(builder.build())
+    }
+
+    private fun postNotification(notification: android.app.Notification) {
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) {
+            Log.w("NotificationHelper", "Notifications are disabled; skipping connection notification")
+            return
         }
+
+        try {
+            manager.notify(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            Log.w("NotificationHelper", "Notification permission is unavailable", e)
+        }
+    }
+
+    private fun createDisconnectAction(labelResId: Int): NotificationCompat.Action {
+        val intent = Intent(context, AutomationDisconnectActivity::class.java).apply {
+            action = AutomationActivity.ACTION_DISCONNECT
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            1,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Action.Builder(
+            R.drawable.ic_disconnect,
+            context.getString(labelResId),
+            pendingIntent
+        ).build()
     }
 
     fun cancelNotification() {

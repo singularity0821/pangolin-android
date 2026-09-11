@@ -67,9 +67,11 @@ class TunnelManager @Inject constructor(
 
     // Reconnection state
     private var reconnectJob: Job? = null
+    private var connectionTimeoutJob: Job? = null
     private var retryCount = 0
     private val MAX_RETRIES = 10
     private val BASE_DELAY_MS = 2000L
+    private val CONNECTION_TIMEOUT_MS = 30000L
     private var isUserInitiatedDisconnect = false
     private var isNetworkAvailable = true
 
@@ -79,7 +81,9 @@ class TunnelManager @Inject constructor(
             Log.i(tag, "Network available, checking if reconnection is needed")
             isNetworkAvailable = true
             val currentState = _tunnelState.value
-            if (currentState.isServiceRunning && !currentState.isFullyConnected && !isUserInitiatedDisconnect) {
+            if (currentState.isServiceRunning && !currentState.isFullyConnected &&
+                !isUserInitiatedDisconnect && reconnectJob?.isActive != true
+            ) {
                 Log.i(tag, "Service running but not connected, triggering immediate reconnection")
                 scope.launch {
                     startReconnection(immediate = true)
@@ -226,7 +230,11 @@ class TunnelManager @Inject constructor(
         if (isConnected) {
             isNetworkAvailable = true // Definitive proof of network
             cancelReconnection()
-            notificationHelper.cancelNotification()
+            connectionTimeoutJob?.cancel()
+            connectionTimeoutJob = null
+            if (!currentState.isFullyConnected) {
+                notificationHelper.showConnectedNotification()
+            }
             retryCount = 0
             // Clear any server-down state in AuthManager when we successfully connect
             scope.launch {
@@ -288,6 +296,9 @@ class TunnelManager @Inject constructor(
         Log.i(tag, "Starting tunnel connection")
         isUserInitiatedDisconnect = false
         cancelReconnection()
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
+        retryCount = 0
         notificationHelper.cancelNotification()
         internalConnect()
     }
@@ -411,6 +422,16 @@ class TunnelManager @Inject constructor(
             // Start socket polling
             startSocketPolling()
 
+            connectionTimeoutJob?.cancel()
+            connectionTimeoutJob = scope.launch {
+                delay(CONNECTION_TIMEOUT_MS)
+                val state = _tunnelState.value
+                if (state.isServiceRunning && !state.isFullyConnected && !isUserInitiatedDisconnect) {
+                    Log.w(tag, "Connection timed out, starting reconnection")
+                    startReconnection()
+                }
+            }
+
             fingerprintManager.start()
             retryCount = 0
         } catch (e: Exception) {
@@ -431,11 +452,15 @@ class TunnelManager @Inject constructor(
     /**
      * Disconnect from VPN tunnel
      */
-    suspend fun disconnect() {
+    suspend fun disconnect(keepNotification: Boolean = false) {
         Log.i(tag, "Stopping tunnel connection")
         isUserInitiatedDisconnect = true
         cancelReconnection()
-        notificationHelper.cancelNotification()
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
+        if (!keepNotification) {
+            notificationHelper.cancelNotification()
+        }
 
         updateState(_tunnelState.value.copy(
             statusMessage = "Disconnecting...",
@@ -598,23 +623,27 @@ class TunnelManager @Inject constructor(
             return
         }
 
+        if (reconnectJob?.isActive == true && immediate) {
+            Log.d(tag, "Reconnection already in progress; ignoring immediate trigger")
+            return
+        }
+
         if (retryCount >= MAX_RETRIES) {
             Log.e(tag, "Max reconnection retries reached")
             notificationHelper.showDisconnectedNotification(
                 context.getString(R.string.notification_reconnect_failed, MAX_RETRIES)
             )
-            scope.launch { disconnect() }
+            scope.launch { disconnect(keepNotification = true) }
             return
         }
 
-        cancelReconnection()
-        
         // Clear connected state so UI shows disconnected/reconnecting
         updateState(_tunnelState.value.copy(
             isSocketConnected = false,
             isRegistered = false,
             isConnecting = true
         ))
+        notificationHelper.cancelNotification()
 
         reconnectJob = scope.launch {
             if (!immediate) {
@@ -631,16 +660,15 @@ class TunnelManager @Inject constructor(
                     errorMessage = null
                 ))
                 
-                if (isNetworkAvailable) {
+                if (isNetworkAvailable && shouldShowBackgroundNotification()) {
                     notificationHelper.showReconnectingNotification(retryCount + 1, MAX_RETRIES)
-                } else {
+                } else if (!isNetworkAvailable && shouldShowBackgroundNotification()) {
                     notificationHelper.showWaitingForNetworkNotification()
                 }
                 
                 delay(delayTime)
             } else {
                 Log.i(tag, "Immediate reconnection triggered")
-                retryCount = 0 // Reset retry count for immediate triggers
             }
 
             try {
@@ -651,12 +679,12 @@ class TunnelManager @Inject constructor(
                     return@launch
                 }
                 
-                if (!isNetworkAvailable) {
-                    Log.i(tag, "Network still unavailable, delaying reconnection attempt")
-                    // This will be re-triggered by onAvailable or we just let it retry in the loop
+                while (!isNetworkAvailable && isActive) {
+                    Log.i(tag, "Network still unavailable, waiting before reconnection attempt")
+                    if (shouldShowBackgroundNotification()) {
+                        notificationHelper.showWaitingForNetworkNotification()
+                    }
                     delay(5000)
-                    startReconnection()
-                    return@launch
                 }
 
                 internalConnect()
@@ -664,6 +692,7 @@ class TunnelManager @Inject constructor(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(tag, "Reconnection attempt ${retryCount + 1} failed: ${e.message}")
                 retryCount++
+                reconnectJob = null
                 startReconnection()
             }
         }
@@ -677,6 +706,11 @@ class TunnelManager @Inject constructor(
         reconnectJob = null
     }
 
+    private fun shouldShowBackgroundNotification(): Boolean {
+        val app = context.applicationContext as? PangolinApplication
+        return app?.isAppInForeground != true
+    }
+
     /**
      * Clean up resources
      */
@@ -687,6 +721,8 @@ class TunnelManager @Inject constructor(
             Log.w(tag, "Failed to unregister network callback: ${e.message}")
         }
         cancelReconnection()
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
         stopSocketPolling()
         scope.cancel()
     }

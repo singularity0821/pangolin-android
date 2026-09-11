@@ -1,18 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <resources>
     <string name="app_name">Pangolin</string>
     <string name="quick_tile_label">Pangolin</string>
-    <string name="quick_tile_state_on">Connect tunnel</string>
-    <string name="quick_tile_state_off">Disconnect tunnel</string>
+    <string name="quick_tile_state_on">Disconnect tunnel</string>
+    <string name="quick_tile_state_off">Connect tunnel</string>
+    <string name="quick_tile_state_connecting">Connecting…</string>
+    <string name="quick_tile_state_reconnecting">Reconnecting…</string>
     <string name="permission_label">control Pangolin tunnels</string>
     <string name="permission_description">control Pangolin tunnels, enabling and disabling tunnels at will.</string>
-
     <!-- Navigation Drawer -->
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
-    
     <!-- Login -->
     <string name="terms_and_privacy_text"><![CDATA[By continuing, you agree to our <a href="https://pangolin.net/tos">Terms of Service</a> and <a href="https://pangolin.net/privacy">Privacy Policy</a>.]]></string>
-
     <!-- Notifications -->
     <string name="notification_channel_name">Connection Status</string>
     <string name="notification_channel_description">Notifications about tunnel connection status</string>
@@ -24,7 +24,10 @@
     <string name="notification_waiting_network_text">Waiting for network connectivity…</string>
     <string name="notification_connecting_title">Pangolin tunnel</string>
     <string name="notification_connecting_text">Establishing secure connection…</string>
-
+    <string name="notification_connected_title">Pangolin tunnel connected</string>
+    <string name="notification_connected_text">Your tunnel is connected.</string>
+    <string name="notification_action_cancel">Cancel connection</string>
+    <string name="notification_action_disconnect">Disconnect</string>
     <!-- Automation -->
     <string name="automation_connect_label">Connect tunnel</string>
     <string name="automation_disconnect_label">Disconnect tunnel</string>

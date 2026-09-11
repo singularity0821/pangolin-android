@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import net.pangolin.Pangolin.util.AccountManager
 import net.pangolin.Pangolin.util.TunnelManager
+import net.pangolin.Pangolin.util.TunnelState
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -64,8 +65,7 @@ class PangolinTileService : TileService() {
             }
 
             updateTileState(
-                isEnabled = tunnelManager.tunnelState.value.isServiceRunning ||
-                    tunnelManager.tunnelState.value.isConnecting
+                state = tunnelManager.tunnelState.value
             )
         }
     }
@@ -77,25 +77,28 @@ class PangolinTileService : TileService() {
         // when the user isn't logged in yet — the tile just shows the inactive
         // state until they sign in.
         if (accountManager.accounts.isEmpty()) {
-            updateTileState(isEnabled = false)
+            updateTileState(TunnelState())
             return
         }
 
         stateCollectionJob = serviceScope.launch {
             tunnelManager.tunnelState.collectLatest { state ->
-                updateTileState(isEnabled = state.isServiceRunning || state.isConnecting)
+                updateTileState(state)
             }
         }
     }
 
-    private fun updateTileState(isEnabled: Boolean) {
+    private fun updateTileState(state: TunnelState) {
         val tile = qsTile ?: return
+        val isEnabled = state.isServiceRunning || state.isConnecting
         tile.state = if (isEnabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = getString(R.string.quick_tile_label)
-        val description = if (isEnabled) {
-            getString(R.string.quick_tile_state_on)
-        } else {
-            getString(R.string.quick_tile_state_off)
+        val description = when {
+            state.isConnecting && state.statusMessage.startsWith("Reconnecting") ->
+                getString(R.string.quick_tile_state_reconnecting)
+            state.isConnecting -> getString(R.string.quick_tile_state_connecting)
+            isEnabled -> getString(R.string.quick_tile_state_on)
+            else -> getString(R.string.quick_tile_state_off)
         }
         tile.subtitle = description
         tile.contentDescription = description

@@ -3,6 +3,9 @@ package net.pangolin.Pangolin
 import android.app.Application
 import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +25,15 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
 
     private val tag = "PangolinApplication"
     private var standbyDetector: StandbyDetector? = null
+    private val processLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) {
+            _isAppInForeground = true
+        }
+
+        override fun onStop(owner: LifecycleOwner) {
+            _isAppInForeground = false
+        }
+    }
 
     // App-wide coroutine scope for tasks that should outlive any activity
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -41,6 +53,8 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
 
         Log.d(tag, "Pangolin application starting")
 
+        ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+
         // Initialize standby detector
         standbyDetector = StandbyDetector(this, this).also { it.start() }
     }
@@ -48,13 +62,13 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
     override fun onTerminate() {
         super.onTerminate()
         Log.d(tag, "Pangolin application terminating")
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
         standbyDetector?.stop()
         standbyDetector = null
     }
 
     override fun onEnterStandby() {
         Log.i(tag, "Device entered standby mode - pausing background operations")
-        _isAppInForeground = false
         synchronized(standbyListeners) {
             standbyListeners.forEach { it.onEnterStandby() }
         }
@@ -62,7 +76,6 @@ class PangolinApplication : Application(), StandbyDetector.StandbyListener {
 
     override fun onExitStandby() {
         Log.i(tag, "Device exited standby mode - resuming background operations")
-        _isAppInForeground = true
         synchronized(standbyListeners) {
             standbyListeners.forEach { it.onExitStandby() }
         }
