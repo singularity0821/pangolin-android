@@ -12,14 +12,11 @@ import androidx.preference.PreferenceFragmentCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import net.pangolin.Pangolin.databinding.SettingsActivityBinding
 import net.pangolin.Pangolin.util.TunnelManager
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class SettingsActivity : BaseNavigationActivity() {
 
     private lateinit var binding: SettingsActivityBinding
@@ -45,9 +42,7 @@ class SettingsActivity : BaseNavigationActivity() {
         return R.id.nav_settings
     }
 
-    @AndroidEntryPoint
     class SettingsFragment : PreferenceFragmentCompat() {
-        @Inject lateinit var tunnelManager: TunnelManager
         private var isTunnelActive = false
         
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -73,10 +68,13 @@ class SettingsActivity : BaseNavigationActivity() {
             
             // Observe tunnel state and disable settings when tunnel is active
             lifecycleScope.launch {
-                tunnelManager.tunnelState.collectLatest { state ->
-                    isTunnelActive = state.isServiceRunning || state.isConnecting
-                    updatePreferencesEnabled()
-                    updateLockInfo()
+                val tunnelManager = TunnelManager.getInstance()
+                if (tunnelManager != null) {
+                    tunnelManager.tunnelState.collectLatest { state ->
+                        isTunnelActive = state.isServiceRunning || state.isConnecting
+                        updatePreferencesEnabled()
+                        updateLockInfo()
+                    }
                 }
             }
         }
@@ -203,8 +201,12 @@ class SettingsActivity : BaseNavigationActivity() {
 
                 // If DNS fields, restrict to numeric + decimal input (to allow dots) and validate
                 val isDnsField = preference.key == "primaryDNSServer" || preference.key == "secondaryDNSServer"
+                val isMtuField = preference.key == "mtu"
                 if (isDnsField) {
                     editText.keyListener = DigitsKeyListener.getInstance("0123456789.:")
+                } else if (isMtuField) {
+                    editText.keyListener = DigitsKeyListener.getInstance("0123456789")
+                    editText.inputType = android.text.InputType.TYPE_CLASS_NUMBER
                 }
                 
                 textInputLayout.addView(editText)
@@ -221,20 +223,32 @@ class SettingsActivity : BaseNavigationActivity() {
                     okButton.setOnClickListener {
                         val newValue = editText.text?.toString()?.trim().orEmpty()
                         val isSecondary = preference.key == "secondaryDNSServer"
-                        val isValid = if (isDnsField) {
-                            if (isSecondary && newValue.isEmpty()) {
-                                true // allow empty secondary DNS
-                            } else {
-                                @Suppress("DEPRECATION")
-                                Patterns.IP_ADDRESS.matcher(newValue).matches()
+                        val isValid = when {
+                            isDnsField -> {
+                                if (isSecondary && newValue.isEmpty()) {
+                                    true
+                                } else {
+                                    Patterns.IP_ADDRESS.matcher(newValue).matches()
+                                }
                             }
-                        } else {
-                            true
+                            isMtuField -> {
+                                val mtuVal = newValue.toIntOrNull()
+                                mtuVal != null && mtuVal in 576..65535
+                            }
+                            else -> true
                         }
 
                         if (!isValid) {
-                            textInputLayout.error = "Please enter a valid IP address"
-                            textInputLayout.helperText = "Examples: 1.1.1.1, 8.8.4.4, or IPv6 like 2001:4860:4860::8888"
+                            when {
+                                isMtuField -> {
+                                    textInputLayout.error = "Please enter a valid MTU value"
+                                    textInputLayout.helperText = "Must be between 576 and 65535"
+                                }
+                                else -> {
+                                    textInputLayout.error = "Please enter a valid IP address"
+                                    textInputLayout.helperText = "Examples: 1.1.1.1, 8.8.4.4, or IPv6 like 2001:4860:4860::8888"
+                                }
+                            }
                         } else {
                             textInputLayout.error = null
                             textInputLayout.helperText = null

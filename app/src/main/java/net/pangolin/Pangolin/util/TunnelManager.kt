@@ -383,7 +383,7 @@ class TunnelManager @Inject constructor(
                     .setSecret(olmSecret)
                     .setUserToken(userToken)
                     .setOrgId(orgId)
-                    .setMtu(1280)
+                    .setMtu(mtu)
                     .setDns("1.1.1.1")
                     .setUpstreamDNS(upstreamDns)
                     .setPingIntervalSeconds(10)
