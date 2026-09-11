@@ -357,7 +357,7 @@ class TunnelManager @Inject constructor(
 
             // Get configuration
             val config = configManager.config.value
-            val primaryDNS = config.primaryDNSServer ?: "1.1.1.1"
+            val primaryDNS = config.primaryDNSServer
             val secondaryDNS = config.secondaryDNSServer
             val overrideDns = config.dnsOverrideEnabled ?: false
             val tunnelDns = config.dnsTunnelEnabled ?: false
@@ -384,8 +384,10 @@ class TunnelManager @Inject constructor(
                 val initConfig = initConfigBuilder.build()
 
                 val upstreamDns = mutableListOf<String>()
-                upstreamDns.add("$primaryDNS:53")
-                if (secondaryDNS != null) {
+                if (!primaryDNS.isNullOrBlank()) {
+                    upstreamDns.add("$primaryDNS:53")
+                }
+                if (!secondaryDNS.isNullOrBlank()) {
                     upstreamDns.add("$secondaryDNS:53")
                 }
 
@@ -396,7 +398,6 @@ class TunnelManager @Inject constructor(
                     .setUserToken(userToken)
                     .setOrgId(orgId)
                     .setMtu(mtu)
-                    .setDns("1.1.1.1")
                     .setUpstreamDNS(upstreamDns)
                     .setPingIntervalSeconds(10)
                     .setPingTimeoutSeconds(30)
