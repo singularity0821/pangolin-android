@@ -351,6 +351,7 @@ class TunnelManager @Inject constructor(
             val overrideDns = config.dnsOverrideEnabled ?: false
             val tunnelDns = config.dnsTunnelEnabled ?: false
             val logCollectionEnabled = config.logCollectionEnabled ?: false
+            val mtu = config.mtu ?: 1280
 
             val fpCollector = AndroidFingerprintCollector(context)
             val initialFingerprint = fpCollector.gatherFingerprintInfo()
