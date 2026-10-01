@@ -1,21 +1,20 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.hilt)
-    alias(libs.plugins.ksp)
 }
 
 android {
     namespace = "net.pangolin.Pangolin"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "net.pangolin.Pangolin"
         minSdk = 24
-        targetSdk = 37
-        versionCode = 24
-        versionName = "0.5.0"
+        targetSdk = 36
+        versionCode = 27
+        versionName = "0.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -23,7 +22,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -34,15 +32,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    kotlinOptions {
+        jvmTarget = "11"
+    }
     buildFeatures {
         compose = true
         viewBinding = true
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
@@ -75,10 +70,6 @@ dependencies {
     implementation(libs.androidx.cardview)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.biometric.ktx.v140alpha02)
-
-    // Hilt dependency injection
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

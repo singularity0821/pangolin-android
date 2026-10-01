@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"syscall"
 
 	olmpkg "github.com/fosrl/olm/olm"
 )
@@ -27,21 +28,28 @@ type InitOlmConfig struct {
 
 // StartTunnelConfig represents the JSON configuration for startTunnel
 type StartTunnelConfig struct {
-	Endpoint            string         `json:"endpoint"`
-	ID                  string         `json:"id"`
-	Secret              string         `json:"secret"`
-	MTU                 int            `json:"mtu"`
-	DNS                 string         `json:"dns"`
-	Holepunch           bool           `json:"holepunch"`
-	PingIntervalSeconds int            `json:"pingIntervalSeconds"`
-	PingTimeoutSeconds  int            `json:"pingTimeoutSeconds"`
-	UserToken           string         `json:"userToken"`
-	OrgID               string         `json:"orgId"`
-	UpstreamDNS         []string       `json:"upstreamDNS"`
-	OverrideDNS         bool           `json:"overrideDNS"`
-	TunnelDNS           bool           `json:"tunnelDNS"`
-	Fingerprint         map[string]any `json:"fingerprint"`
-	Postures            map[string]any `json:"postures"`
+	Endpoint                string         `json:"endpoint"`
+	ID                      string         `json:"id"`
+	Secret                  string         `json:"secret"`
+	MTU                     int            `json:"mtu"`
+	DNS                     string         `json:"dns"`
+	Holepunch               bool           `json:"holepunch"`
+	PingIntervalSeconds     int            `json:"pingIntervalSeconds"`
+	PingTimeoutSeconds      int            `json:"pingTimeoutSeconds"`
+	UserToken               string         `json:"userToken"`
+	OrgID                   string         `json:"orgId"`
+	UpstreamDNS             []string       `json:"upstreamDNS"`
+	OverrideDNS             bool           `json:"overrideDNS"`
+	TunnelDNS               bool           `json:"tunnelDNS"`
+	ExitNodeTakesPrecedence bool           `json:"exitNodeTakesPrecedence"`
+	Fingerprint             map[string]any `json:"fingerprint"`
+	Postures                map[string]any `json:"postures"`
+
+	// GatewaySiteResourceID/GatewaySiteIDs, when set, establish the exit node (gateway) as the
+	// tunnel comes up. The resource ID is what olm uses to apply later server-pushed changes
+	// to that resource only.
+	GatewaySiteResourceID int   `json:"gatewaySiteResourceId"`
+	GatewaySiteIDs        []int `json:"gatewaySiteIds"`
 }
 
 var (
@@ -124,22 +132,26 @@ func startTunnel(fd C.int, configJSON *C.char) *C.char {
 
 	// Create OLM Config with tunnel parameters
 	olmConfig := olmpkg.TunnelConfig{
-		Endpoint:             config.Endpoint,
-		ID:                   config.ID,
-		Secret:               config.Secret,
-		MTU:                  config.MTU,
-		DNS:                  config.DNS,
-		Holepunch:            config.Holepunch,
-		PingIntervalDuration: time.Duration(config.PingIntervalSeconds) * time.Second,
-		PingTimeoutDuration:  time.Duration(config.PingTimeoutSeconds) * time.Second,
-		FileDescriptorTun:    uint32(fd),
-		UserToken:            config.UserToken,
-		OverrideDNS:          config.OverrideDNS,
-		TunnelDNS:            config.TunnelDNS,
-		UpstreamDNS:          config.UpstreamDNS,
-		OrgID:                config.OrgID,
-		InitialFingerprint:   config.Fingerprint,
-		InitialPostures:      config.Postures,
+		Endpoint:                          config.Endpoint,
+		ID:                                config.ID,
+		Secret:                            config.Secret,
+		MTU:                               config.MTU,
+		DNS:                               config.DNS,
+		Holepunch:                         config.Holepunch,
+		PingIntervalDuration:              time.Duration(config.PingIntervalSeconds) * time.Second,
+		PingTimeoutDuration:               time.Duration(config.PingTimeoutSeconds) * time.Second,
+		FileDescriptorTun:                 uint32(fd),
+		UserToken:                         config.UserToken,
+		OverrideDNS:                       config.OverrideDNS,
+		TunnelDNS:                         config.TunnelDNS,
+		DisableRoutesAndAliasesOnExitNode: config.ExitNodeTakesPrecedence,
+		UpstreamDNS:                       config.UpstreamDNS,
+		OrgID:                             config.OrgID,
+		InitialFingerprint:                config.Fingerprint,
+		InitialPostures:                   config.Postures,
+
+		GatewaySiteResourceId: config.GatewaySiteResourceID,
+		GatewaySiteIds:        config.GatewaySiteIDs,
 	}
 
 	// print the config for debugging
@@ -169,6 +181,13 @@ func startTunnel(fd C.int, configJSON *C.char) *C.char {
 
 //export addDevice
 func addDevice(fd C.int) *C.char {
+	fdOwnedByOlm := false
+	defer func() {
+		if !fdOwnedByOlm {
+			_ = syscall.Close(int(fd))
+		}
+	}()
+
 	if olmInstance == nil {
 		appLogger.Error("OLM instance not initialized")
 		return C.CString("Error: OLM instance not initialized")
@@ -179,6 +198,7 @@ func addDevice(fd C.int) *C.char {
 		appLogger.Error("Failed to add device: %v", err)
 		return C.CString(fmt.Sprintf("Error: Failed to add device: %v", err))
 	}
+	fdOwnedByOlm = true
 	return C.CString("Device added successfully")
 }
 

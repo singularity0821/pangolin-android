@@ -5,12 +5,12 @@
 
 package net.pangolin.Pangolin.PacketTunnel;
 
+import android.net.IpPrefix;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.system.OsConstants;
 import android.util.Log;
@@ -21,7 +21,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 import androidx.annotation.Nullable;
 
@@ -38,7 +37,7 @@ public class NetworkSettingsPoller {
     private static final int MAX_CONSECUTIVE_ERRORS = 10;
 
     private final GoBackend goBackend;
-    private final AtomicLong lastSettingsVersion = new AtomicLong(0);
+    private final NetworkSettingsApplyTracker applyTracker = new NetworkSettingsApplyTracker();
     private final AtomicBoolean isPolling = new AtomicBoolean(false);
     private final AtomicBoolean isPaused = new AtomicBoolean(false);
     private final Object lock = new Object();
@@ -55,9 +54,9 @@ public class NetworkSettingsPoller {
         /**
          * Called when network settings have been updated.
          * @param settings The new network settings
-         * @return ParcelFileDescriptor for the new tunnel, or null if rebuild not needed
+         * @return true only when Android accepted and the Go backend adopted the new interface
          */
-        @Nullable ParcelFileDescriptor onNetworkSettingsUpdated(NetworkSettings settings);
+        boolean onNetworkSettingsUpdated(NetworkSettings settings);
     }
 
     /**
@@ -88,7 +87,7 @@ public class NetworkSettingsPoller {
             }
 
             Log.d(TAG, "Starting network settings polling");
-            lastSettingsVersion.set(0);
+            applyTracker.reset();
             consecutiveErrors = 0;
             isPaused.set(false);
 
@@ -168,7 +167,7 @@ public class NetworkSettingsPoller {
                 handlerThread = null;
             }
 
-            lastSettingsVersion.set(0);
+            applyTracker.reset();
             consecutiveErrors = 0;
         }
     }
@@ -234,45 +233,40 @@ public class NetworkSettingsPoller {
     };
 
     private void checkForSettingsUpdate() {
-        try {
-            long currentVersion = goBackend.getNetworkSettingsVersionNumber();
-            long lastVersion = lastSettingsVersion.get();
+        long attemptGeneration = applyTracker.getGeneration();
+        long currentVersion = goBackend.getNetworkSettingsVersionNumber();
+        long lastVersion = applyTracker.getLastAppliedVersion();
 
-            // Log.v(TAG, "Polling: currentVersion=" + currentVersion + ", lastVersion=" + lastVersion + ", isPolling=" + isPolling.get());
+        if (applyTracker.shouldApply(currentVersion)) {
+            Log.d(TAG, "Network settings version pending: " + lastVersion + " -> " + currentVersion);
 
-            if (currentVersion > lastVersion) {
-                Log.d(TAG, "Network settings version changed: " + lastVersion + " -> " + currentVersion);
-
-                String settingsJson = goBackend.getNetworkSettingsJSON();
-                Log.d(TAG, "Retrieved settings JSON (length=" + (settingsJson != null ? settingsJson.length() : 0) + ")");
-                
-                if (settingsJson != null && !settingsJson.isEmpty() && !settingsJson.equals("{}")) {
-                    try {
-                        NetworkSettings settings = NetworkSettings.fromJson(settingsJson);
-                        Log.d(TAG, "Parsed network settings, invoking callback (callback=" + (callback != null ? "present" : "null") + ")");
-                        
-                        if (callback != null) {
-                            callback.onNetworkSettingsUpdated(settings);
-                            Log.d(TAG, "Callback invoked successfully");
-                        } else {
-                            Log.w(TAG, "Callback is null, cannot apply settings");
-                        }
-                        
-                        // Only update the version after successfully applying settings
-                        lastSettingsVersion.set(currentVersion);
-                        Log.d(TAG, "Updated lastSettingsVersion to " + currentVersion);
-                    } catch (JSONException e) {
-                        Log.e(TAG, "Failed to parse network settings JSON", e);
-                    }
-                } else {
-                    Log.d(TAG, "Skipping empty or null settings JSON, will retry on next poll");
-                }
-            } else if (currentVersion < lastVersion) {
-                Log.w(TAG, "Version went backwards! currentVersion=" + currentVersion + ", lastVersion=" + lastVersion + ". Resetting.");
-                lastSettingsVersion.set(currentVersion);
+            String settingsJson = goBackend.getNetworkSettingsJSON();
+            if (settingsJson == null || settingsJson.isEmpty() || settingsJson.equals("{}")) {
+                Log.d(TAG, "Skipping empty network settings; version remains pending");
+                return;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "Error checking for settings update", e);
+
+            final NetworkSettings settings;
+            try {
+                settings = NetworkSettings.fromJson(settingsJson);
+            } catch (JSONException e) {
+                Log.e(TAG, "Failed to parse network settings; version remains pending", e);
+                return;
+            }
+            boolean applied = callback != null && callback.onNetworkSettingsUpdated(settings);
+            if (applied) {
+                if (applyTracker.recordSuccess(attemptGeneration, currentVersion)) {
+                    Log.d(TAG, "Acknowledged applied network settings version " + currentVersion);
+                } else {
+                    Log.d(TAG, "Ignored network settings acknowledgement from an older polling session");
+                }
+            } else {
+                applyTracker.recordFailure(currentVersion);
+                Log.w(TAG, "Network settings version " + currentVersion + " was not applied; retrying");
+            }
+        } else if (currentVersion < lastVersion) {
+            Log.w(TAG, "Network settings version went backwards; resetting acknowledgement state");
+            applyTracker.reset();
         }
     }
 
@@ -370,6 +364,34 @@ public class NetworkSettingsPoller {
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to add IPv4 route", e);
+                }
+            }
+        }
+
+        // Add IPv4 excluded routes (e.g. a site's live endpoint kept out of a
+        // broader included route such as a full-tunnel/gateway default route
+        // - see network.AddBypassRouteForDestination on the Go side).
+        // VpnService.Builder.excludeRoute(IpPrefix) is API 33+ only; below
+        // that, this is a known limitation - the destination can't be
+        // protected from an overlapping included route at the OS level.
+        List<IPv4Route> ipv4ExcludedRoutes = settings.getIpv4ExcludedRoutes();
+        if (ipv4ExcludedRoutes != null) {
+            for (IPv4Route route : ipv4ExcludedRoutes) {
+                String destinationAddress = route.getDestinationAddress();
+                if (destinationAddress == null) {
+                    continue;
+                }
+                int prefixLength = route.getPrefixLength();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    try {
+                        builder.excludeRoute(new IpPrefix(InetAddress.getByName(destinationAddress), prefixLength));
+                        Log.d(TAG, "Excluded IPv4 route: " + destinationAddress + "/" + prefixLength);
+                    } catch (Exception e) {
+                        Log.w(TAG, "Failed to exclude route " + destinationAddress + "/" + prefixLength, e);
+                    }
+                } else {
+                    Log.w(TAG, "Cannot exclude route " + destinationAddress
+                        + " on Android < 13 (API 33); gateway site connectivity may be affected");
                 }
             }
         }

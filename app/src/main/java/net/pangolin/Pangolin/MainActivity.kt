@@ -1,5 +1,6 @@
 package net.pangolin.Pangolin
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -10,60 +11,72 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.util.Log
 import android.view.View
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 import net.pangolin.Pangolin.databinding.ActivityMainBinding
 import net.pangolin.Pangolin.databinding.ContentMainBinding
+import net.pangolin.Pangolin.util.APIClient
 import net.pangolin.Pangolin.util.AuthManager
 import net.pangolin.Pangolin.util.AccountManager
+import net.pangolin.Pangolin.util.ConfigManager
+import net.pangolin.Pangolin.util.FingerprintManager
+import net.pangolin.Pangolin.util.SecretManager
+import net.pangolin.Pangolin.util.SocketManager
 import net.pangolin.Pangolin.util.TunnelManager
 import net.pangolin.Pangolin.util.TunnelState
 import net.pangolin.Pangolin.util.accountDisplayName
 import net.pangolin.Pangolin.util.userDisplayName
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class MainActivity : BaseNavigationActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var contentBinding: ContentMainBinding
+    private lateinit var runtime: PangolinRuntime
 
-    @Inject lateinit var authManager: AuthManager
-    @Inject lateinit var accountManager: AccountManager
-    @Inject lateinit var tunnelManager: TunnelManager
-
-    private var pendingTileConnectRequest = false
-
-    // Notification permission launcher
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            Log.i("MainActivity", "Notification permission granted")
-        } else {
-            Log.w("MainActivity", "Notification permission denied")
-        }
-    }
+    // Authentication managers
+    private lateinit var apiClient: APIClient
+    private lateinit var authManager: AuthManager
+    private lateinit var accountManager: AccountManager
+    private lateinit var configManager: ConfigManager
+    private lateinit var secretManager: SecretManager
+    private lateinit var socketManager: SocketManager
+    private lateinit var fingerprintManager: FingerprintManager
+    
+    // Tunnel manager
+    private lateinit var tunnelManager: TunnelManager
 
     // VPN permission launcher
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            // VPN permission granted, now check battery optimization
-            checkBatteryOptimizationAndConnect()
+            requestNotificationPermissionAndConnect()
         } else {
             Log.e("MainActivity", "VPN permission denied")
         }
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Log.w("MainActivity", "Notification permission denied; VPN status may be hidden")
+        }
+        checkBatteryOptimizationAndConnect()
     }
 
     // Battery optimization permission launcher
@@ -89,19 +102,19 @@ class MainActivity : BaseNavigationActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        pendingTileConnectRequest = isTileConnectRequest(intent)
-
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
-        // Request notification permission on Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
 
-        // Initialize dependencies (shared with PangolinTileService)
-        // Managers are now centrally managed in PangolinApplication
-
+        // Reuse the process-wide graph that also handles Android Always-On startup.
+        runtime = (application as PangolinApplication).runtime
+        secretManager = runtime.secretManager
+        accountManager = runtime.accountManager
+        configManager = runtime.configManager
+        apiClient = runtime.apiClient
+        socketManager = runtime.socketManager
+        fingerprintManager = runtime.fingerprintManager
+        authManager = runtime.authManager
+        tunnelManager = runtime.tunnelManager
         // Check if there are any accounts - if not, go to LoginActivity
         val accounts = accountManager.accounts
         // // log the accounts for debugging
@@ -116,12 +129,24 @@ class MainActivity : BaseNavigationActivity() {
         // Setup navigation using base class
         setupNavigation(binding.drawerLayout, binding.navView, binding.toolbar)
 
+
         // Bind content layout
         contentBinding = ContentMainBinding.bind(binding.content.root)
 
         // Show loading overlay initially
         contentBinding.loadingOverlay.visibility = android.view.View.VISIBLE
         contentBinding.mainContent.visibility = android.view.View.GONE
+
+        if (intent?.getBooleanExtra("auto_connect", false) == true) {
+            val currentState = tunnelManager.tunnelState.value
+            if (!currentState.isServiceRunning && !currentState.isConnecting) {
+                lifecycleScope.launch {
+                    tunnelManager.connect()
+                }
+            }
+
+            intent.removeExtra("auto_connect")
+        }
 
         // Setup toggle switch listener with helper function
         fun setupToggleListener() {
@@ -166,7 +191,7 @@ class MainActivity : BaseNavigationActivity() {
                     if (isChecked) {
                         connectTunnel()
                     } else {
-                        tunnelManager.disconnect()
+                        disconnectTunnelFromUi()
                     }
                 }
             }
@@ -220,6 +245,13 @@ class MainActivity : BaseNavigationActivity() {
             }
         }
 
+        // Setup exit node card click listener
+        contentBinding.exitNodeButtonLayout.setOnClickListener {
+            if (!authManager.sessionExpired.value) {
+                showExitNodePickerDialog()
+            }
+        }
+
         // Setup links card click listeners
         contentBinding.linkDashboard.setOnClickListener {
             val activeAccount = accountManager.activeAccount
@@ -268,14 +300,12 @@ class MainActivity : BaseNavigationActivity() {
                 contentBinding.mainContent.visibility = android.view.View.VISIBLE
                 // Update connection controls based on server status
                 updateConnectionControls()
-                handlePendingTileConnectRequest()
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error initializing auth manager", e)
                 // Hide loading overlay even on error
                 contentBinding.loadingOverlay.visibility = android.view.View.GONE
                 contentBinding.mainContent.visibility = android.view.View.VISIBLE
                 updateConnectionControls()
-                handlePendingTileConnectRequest()
             }
         }
 
@@ -301,6 +331,31 @@ class MainActivity : BaseNavigationActivity() {
             }
         }
 
+        // Observe the available exit nodes and the selected one
+        lifecycleScope.launch {
+            tunnelManager.exitNodeState.collect {
+                updateExitNodeSection()
+            }
+        }
+
+        // Reload the exit nodes when the org changes, sign-in completes, or the tunnel connects
+        // (connecting applies the saved exit node)
+        lifecycleScope.launch {
+            authManager.currentOrg.collect {
+                tunnelManager.refreshExitNodes()
+            }
+        }
+        lifecycleScope.launch {
+            authManager.isAuthenticated.collect { authenticated ->
+                if (authenticated) tunnelManager.refreshExitNodes()
+            }
+        }
+        lifecycleScope.launch {
+            tunnelManager.tunnelState.map { it.isFullyConnected }.distinctUntilChanged().collect { connected ->
+                if (connected) tunnelManager.refreshExitNodes()
+            }
+        }
+
         // Observe server info changes
         lifecycleScope.launch {
             authManager.serverInfo.collect {
@@ -310,11 +365,8 @@ class MainActivity : BaseNavigationActivity() {
 
         // Observe server down status
         lifecycleScope.launch {
-            combine(authManager.isServerDown, tunnelManager.tunnelState) { isServerDown, tunnelState ->
-                val isConnected = tunnelState.isFullyConnected || tunnelState.isRegistered
-                isServerDown && !isConnected && !tunnelState.isConnecting
-            }.collect { shouldShowBanner ->
-                contentBinding.serverDownBanner.visibility = if (shouldShowBanner) View.VISIBLE else View.GONE
+            authManager.isServerDown.collect { isServerDown ->
+                contentBinding.serverDownBanner.visibility = if (isServerDown) View.VISIBLE else View.GONE
                 updateConnectionControls()
                 updateErrorMessage()
             }
@@ -353,38 +405,6 @@ class MainActivity : BaseNavigationActivity() {
                 }
             }
         }
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        if (isTileConnectRequest(intent)) {
-            pendingTileConnectRequest = true
-            handlePendingTileConnectRequest()
-        }
-    }
-
-    private fun isTileConnectRequest(intent: Intent?): Boolean {
-        if (intent == null) {
-            return false
-        }
-        return intent.action == PangolinTileService.ACTION_REQUEST_CONNECT ||
-            intent.getBooleanExtra(PangolinTileService.EXTRA_REQUEST_CONNECT, false)
-    }
-
-    private fun handlePendingTileConnectRequest() {
-        if (!pendingTileConnectRequest) {
-            return
-        }
-
-        val state = tunnelManager.tunnelState.value
-        if (!state.canEnable) {
-            pendingTileConnectRequest = false
-            return
-        }
-
-        pendingTileConnectRequest = false
-        connectTunnel()
     }
 
     private fun showOlmErrorDialog(code: String, message: String) {
@@ -484,9 +504,28 @@ class MainActivity : BaseNavigationActivity() {
                 contentBinding.organizationButtonLayout.isEnabled = false
                 contentBinding.organizationButtonLayout.alpha = 0.5f
             }
+            updateExitNodeSection()
         } else {
             // Hide the card only if there's no account at all
             contentBinding.accountOrgCard.visibility = View.GONE
+        }
+    }
+
+    /**
+     * Shows the exit node section under the organization when the org has exit nodes, with the
+     * selected one's name (or "None"). Hidden when there are none or the session expired. It also
+     * stays up while there's an active selection whose name list hasn't loaded yet, showing "…",
+     * so it doesn't disappear and reappear.
+     */
+    private fun updateExitNodeSection() {
+        val state = tunnelManager.exitNodeState.value
+        val hasOrg = authManager.currentOrg.value != null
+        val show = hasOrg && !authManager.sessionExpired.value &&
+            (state.nodes.isNotEmpty() || state.activeId != null)
+        contentBinding.exitNodeSection.visibility = if (show) View.VISIBLE else View.GONE
+        contentBinding.tvExitNodeName.text = when (val activeId = state.activeId) {
+            null -> "None"
+            else -> state.nodes.firstOrNull { it.siteResourceId == activeId }?.name ?: "…"
         }
     }
 
@@ -568,8 +607,9 @@ class MainActivity : BaseNavigationActivity() {
         contentBinding.statusCard.alpha = 1.0f
         contentBinding.statusCard.setOnClickListener(null)
         
-        // Hide organization selector and watermark when session expired
+        // Hide organization selector, exit node selector and watermark when session expired
         contentBinding.organizationSection.visibility = View.GONE
+        contentBinding.exitNodeSection.visibility = View.GONE
         contentBinding.tvWatermarkMessage.visibility = View.GONE
     }
 
@@ -740,6 +780,11 @@ class MainActivity : BaseNavigationActivity() {
                         }
                     } catch (e: Exception) {
                         Log.e("MainActivity", "Error during logout", e)
+                        Toast.makeText(
+                            this@MainActivity,
+                            e.message ?: "Logout failed",
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
                 }
             }
@@ -806,6 +851,71 @@ class MainActivity : BaseNavigationActivity() {
             .show()
     }
 
+    private fun showExitNodePickerDialog() {
+        val state = tunnelManager.exitNodeState.value
+        val nodes = state.nodes
+        if (nodes.isEmpty()) return
+
+        // Switching mid-connect would miss the tunnel that is still coming up
+        val tunnelState = tunnelManager.tunnelState.value
+        if (tunnelState.isServiceRunning && !(tunnelState.isSocketConnected && tunnelState.isRegistered)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Please Wait")
+                .setMessage("Wait for the connection to finish before changing the exit node.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        // "None" first, then each exit node with the sites it routes through beneath its name
+        val secondaryColor = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY
+        )
+        val names = (listOf<CharSequence>("None") + nodes.map { node ->
+            val siteNames = node.siteNames.orEmpty()
+            if (siteNames.isEmpty()) {
+                node.name
+            } else {
+                SpannableStringBuilder(node.name).append('\n').apply {
+                    val start = length
+                    append(siteNames.joinToString(", "))
+                    setSpan(RelativeSizeSpan(0.85f), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    setSpan(ForegroundColorSpan(secondaryColor), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+        }).toTypedArray()
+        val activeIndex = nodes.indexOfFirst { it.siteResourceId == state.activeId }
+        val checkedItem = if (activeIndex >= 0) activeIndex + 1 else 0
+
+        val icon = ContextCompat.getDrawable(this, R.drawable.ic_public)
+        icon?.setTint(ContextCompat.getColor(this, R.color.pangolin_primary))
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Route All Traffic Through")
+            .setIcon(icon)
+            .setSingleChoiceItems(names, checkedItem) { dialog, which ->
+                if (which != checkedItem) {
+                    lifecycleScope.launch {
+                        val error = if (which == 0) {
+                            tunnelManager.disableExitNode()
+                        } else {
+                            tunnelManager.selectExitNode(nodes[which - 1])
+                        }
+                        if (error != null) {
+                            MaterialAlertDialogBuilder(this@MainActivity)
+                                .setTitle("Exit Node Failed")
+                                .setMessage(error)
+                                .setPositiveButton("OK", null)
+                                .show()
+                        }
+                    }
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
     }
@@ -830,7 +940,18 @@ class MainActivity : BaseNavigationActivity() {
         if (prepareIntent != null) {
             vpnPermissionLauncher.launch(prepareIntent)
         } else {
-            // VPN permission already granted, check battery optimization
+            requestNotificationPermissionAndConnect()
+        }
+    }
+
+    private fun requestNotificationPermissionAndConnect() {
+        if (configManager.config.value.persistentVpnNotification &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
             checkBatteryOptimizationAndConnect()
         }
     }
@@ -888,15 +1009,15 @@ class MainActivity : BaseNavigationActivity() {
 
     private fun updateTunnelState(newState: TunnelState) {
         runOnUiThread {
-            // Determine the connection status for UI logic
-            val isConnected = newState.isFullyConnected || newState.isRegistered
-            
             // Determine the status text based on the connection state
             val statusText = when {
-                isConnected -> "Connected"
-                newState.statusMessage == "Waiting for network..." -> "Waiting for network..."
-                newState.errorMessage != null && !newState.isConnecting -> "Error"
-                else -> newState.statusMessage
+                newState.errorMessage != null -> "Error"
+                newState.isFullyConnected -> "Connected"
+                newState.isRegistered -> "Registering"
+                newState.isSocketConnected && !newState.isRegistered -> "Registering"
+                newState.isServiceRunning && !newState.isSocketConnected -> "Registering"
+                newState.isConnecting -> "Registering"
+                else -> "Disconnected"
             }
             
             // Update status text
@@ -904,8 +1025,9 @@ class MainActivity : BaseNavigationActivity() {
 
             // Update status dot drawable based on connection state
             val dotDrawable = when {
-                isConnected -> R.drawable.status_dot_green
                 newState.errorMessage != null -> R.drawable.status_dot_red
+                newState.isFullyConnected -> R.drawable.status_dot_green
+                newState.isRegistered -> R.drawable.status_dot_orange
                 newState.isSocketConnected && !newState.isRegistered -> R.drawable.status_dot_orange
                 newState.isServiceRunning && !newState.isSocketConnected -> R.drawable.status_dot_orange
                 newState.isConnecting -> R.drawable.status_dot_orange
@@ -915,7 +1037,7 @@ class MainActivity : BaseNavigationActivity() {
             contentBinding.statusDot.setBackgroundResource(dotDrawable)
 
             // Update error message
-            if (newState.errorMessage != null && !isConnected) {
+            if (newState.errorMessage != null) {
                 contentBinding.tvError.text = "Error: ${newState.errorMessage}"
                 contentBinding.tvError.visibility = View.VISIBLE
             } else {
@@ -949,7 +1071,7 @@ class MainActivity : BaseNavigationActivity() {
                     if (isChecked && currentState.canEnable) {
                         connectTunnel()
                     } else if (!isChecked && currentState.canDisable) {
-                        tunnelManager.disconnect()
+                        disconnectTunnelFromUi()
                     } else {
                         // Revert toggle if action not allowed
                         contentBinding.toggleConnect.setOnCheckedChangeListener(null)
@@ -961,7 +1083,7 @@ class MainActivity : BaseNavigationActivity() {
                                 if (checked && state.canEnable) {
                                     connectTunnel()
                                 } else if (!checked && state.canDisable) {
-                                    tunnelManager.disconnect()
+                                    disconnectTunnelFromUi()
                                 }
                             }
                         }
@@ -969,5 +1091,15 @@ class MainActivity : BaseNavigationActivity() {
                 }
             }
         }
+    }
+
+    private suspend fun disconnectTunnelFromUi() {
+        if (runtime.disconnectFromUser()) return
+        Toast.makeText(
+            this,
+            R.string.disable_always_on_before_disconnect,
+            Toast.LENGTH_LONG,
+        ).show()
+        updateTunnelState(tunnelManager.tunnelState.value)
     }
 }

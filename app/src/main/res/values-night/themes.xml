@@ -38,6 +38,8 @@
 
         <!-- Status bar color -->
         <item name="android:statusBarColor">@android:color/transparent</item>
+        <!-- DrawerLayout paints the status bar area with colorPrimaryDark, which M3 defaults to colorPrimary -->
+        <item name="colorPrimaryDark">?android:attr/colorBackground</item>
 
         <!-- Navigation bar color -->
         <item name="android:navigationBarColor">?attr/colorSurface</item>

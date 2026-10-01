@@ -4,17 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceManager
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class ConfigManager @Inject constructor(
-    @ApplicationContext context: Context,
-) {
+class ConfigManager private constructor(context: Context) {
     private val tag = "ConfigManager"
     private val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
 
@@ -23,7 +17,7 @@ class ConfigManager @Inject constructor(
     
     private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
-            "overrideDns", "tunnelDns", "primaryDNSServer", "secondaryDNSServer", "logCollectionEnabled", "mtu" -> {
+            "overrideDns", "tunnelDns", "primaryDNSServer", "secondaryDNSServer", "logCollectionEnabled", "mtu", "persistentVpnNotification", "exitNodeTakesPrecedence" -> {
                 Log.d(tag, "Preference changed: $key, reloading config")
                 _config.value = loadConfig()
             }
@@ -42,7 +36,9 @@ class ConfigManager @Inject constructor(
                 primaryDNSServer = prefs.getString("primaryDNSServer", null),
                 secondaryDNSServer = prefs.getString("secondaryDNSServer", null),
                 logCollectionEnabled = prefs.getBoolean("logCollectionEnabled", false),
-                mtu = prefs.getString("mtu", null)?.toIntOrNull()
+                mtu = prefs.getString("mtu", null)?.toIntOrNull(),
+                persistentVpnNotification = prefs.getBoolean("persistentVpnNotification", false),
+                exitNodeTakesPrecedence = prefs.getBoolean("exitNodeTakesPrecedence", false)
             )
         } catch (e: Exception) {
             Log.e(tag, "Error loading config: ${e.message}", e)
@@ -58,6 +54,8 @@ class ConfigManager @Inject constructor(
                 putString("primaryDNSServer", config.primaryDNSServer)
                 putString("secondaryDNSServer", config.secondaryDNSServer)
                 putBoolean("logCollectionEnabled", config.logCollectionEnabled ?: false)
+                putBoolean("persistentVpnNotification", config.persistentVpnNotification)
+                putBoolean("exitNodeTakesPrecedence", config.exitNodeTakesPrecedence ?: false)
                 if (config.mtu != null) putString("mtu", config.mtu.toString()) else remove("mtu")
                 apply()
             }
@@ -77,4 +75,16 @@ class ConfigManager @Inject constructor(
     fun cleanup() {
         prefs.unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
     }
+
+    companion object {
+        @Volatile
+        private var instance: ConfigManager? = null
+
+        fun getInstance(context: Context): ConfigManager {
+            return instance ?: synchronized(this) {
+                instance ?: ConfigManager(context.applicationContext).also { instance = it }
+            }
+        }
+    }
+
 }

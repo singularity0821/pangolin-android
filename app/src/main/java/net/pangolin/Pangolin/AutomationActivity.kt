@@ -4,24 +4,19 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.content.IntentSanitizer
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
-import net.pangolin.Pangolin.util.AccountManager
-import net.pangolin.Pangolin.util.TunnelManager
-import javax.inject.Inject
 
 /**
  * A headless activity to handle automation requests from external apps (e.g., Tasker, Samsung Routines).
  * Responds to intents with specific actions to connect or disconnect the VPN.
  */
-@AndroidEntryPoint
 open class AutomationActivity : ComponentActivity() {
     protected val tag = "AutomationActivity"
-
-    @Inject lateinit var tunnelManager: TunnelManager
-    @Inject lateinit var accountManager: AccountManager
+    private val runtime: PangolinRuntime
+        get() = (application as PangolinApplication).runtime
 
     companion object {
         const val ACTION_CONNECT = "net.pangolin.Pangolin.ACTION_CONNECT"
@@ -46,7 +41,7 @@ open class AutomationActivity : ComponentActivity() {
         
         Log.i(tag, "Received automation request with action: $action")
 
-        if (accountManager.accounts.isEmpty()) {
+        if (runtime.accountManager.accounts.isEmpty()) {
             Log.w(tag, "No accounts configured, opening MainActivity")
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -83,7 +78,7 @@ open class AutomationActivity : ComponentActivity() {
     }
 
     private suspend fun handleConnect() {
-        val state = tunnelManager.tunnelState.value
+        val state = runtime.tunnelManager.tunnelState.value
         if (state.canEnable) {
             if (VpnService.prepare(this) != null) {
                 Log.w(tag, "VPN permission required, opening MainActivity")
@@ -92,7 +87,7 @@ open class AutomationActivity : ComponentActivity() {
                 }
                 startActivity(mainIntent)
             } else {
-                tunnelManager.connect()
+                runtime.tunnelManager.connect()
             }
         } else {
             Log.d(tag, "Connect ignored: already connecting or connected")
@@ -100,16 +95,23 @@ open class AutomationActivity : ComponentActivity() {
     }
 
     private suspend fun handleDisconnect() {
-        val state = tunnelManager.tunnelState.value
+        val state = runtime.tunnelManager.tunnelState.value
         if (state.canDisable) {
-            tunnelManager.disconnect()
+            if (!runtime.disconnectFromUser()) {
+                Log.w(tag, "Disconnect ignored while Android Always-On VPN owns the tunnel")
+                Toast.makeText(
+                    this,
+                    R.string.disable_always_on_before_disconnect,
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         } else {
             Log.d(tag, "Disconnect ignored: already disconnected")
         }
     }
 
     private suspend fun handleToggle() {
-        val state = tunnelManager.tunnelState.value
+        val state = runtime.tunnelManager.tunnelState.value
         if (state.canDisable) {
             handleDisconnect()
         } else if (state.canEnable) {
@@ -121,7 +123,6 @@ open class AutomationActivity : ComponentActivity() {
 /**
  * Specifically for launcher/routine discovery of Connect action
  */
-@AndroidEntryPoint
 class AutomationConnectActivity : AutomationActivity() {
     override fun determineAction(intent: Intent): String = ACTION_CONNECT
 }
@@ -129,7 +130,6 @@ class AutomationConnectActivity : AutomationActivity() {
 /**
  * Specifically for launcher/routine discovery of Disconnect action
  */
-@AndroidEntryPoint
 class AutomationDisconnectActivity : AutomationActivity() {
     override fun determineAction(intent: Intent): String = ACTION_DISCONNECT
 }
@@ -137,7 +137,6 @@ class AutomationDisconnectActivity : AutomationActivity() {
 /**
  * Specifically for launcher/routine discovery of Toggle action
  */
-@AndroidEntryPoint
 class AutomationToggleActivity : AutomationActivity() {
     override fun determineAction(intent: Intent): String = ACTION_TOGGLE
 }

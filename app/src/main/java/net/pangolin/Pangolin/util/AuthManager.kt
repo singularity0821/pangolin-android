@@ -1,30 +1,18 @@
 package net.pangolin.Pangolin.util
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import javax.inject.Inject
-import javax.inject.Provider
-import javax.inject.Singleton
 
 sealed class AuthError : Exception() {
     object Unauthenticated : AuthError()
     object NoOrganizationSelected : AuthError()
     object DeviceAuthTimeout : AuthError()
     object DeviceAuthCancelled : AuthError()
+    object AlwaysOnActive : AuthError()
     data class NetworkError(val originalError: Throwable) : AuthError()
     data class APIError(val originalError: Throwable) : AuthError()
 
@@ -34,6 +22,7 @@ sealed class AuthError : Exception() {
             is NoOrganizationSelected -> "No organization selected"
             is DeviceAuthTimeout -> "Device authentication timed out"
             is DeviceAuthCancelled -> "Device authentication was cancelled"
+            is AlwaysOnActive -> "Disable Always-On VPN in Android settings before changing accounts or organizations."
             is NetworkError -> "Network error: ${originalError.message}"
             is APIError -> "API error: ${originalError.message}"
         }
@@ -41,20 +30,15 @@ sealed class AuthError : Exception() {
 
 
 
-@Singleton
-class AuthManager @Inject constructor(
-    @param:ApplicationContext private val context: Context,
+class AuthManager(
+    private val context: Context,
     val apiClient: APIClient,
     val configManager: ConfigManager,
     val accountManager: AccountManager,
     val secretManager: SecretManager,
-    // Use Provider to break the AuthManager <-> TunnelManager dependency cycle.
-    private val tunnelManagerProvider: Provider<TunnelManager>,
+    var tunnelManager: TunnelManager? = null,
 ) {
     private val tag = "AuthManager"
-
-    // Lazily resolve TunnelManager only when actually needed (during account/org switches).
-    private val tunnelManager: TunnelManager? get() = tunnelManagerProvider.get()
 
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
@@ -94,13 +78,16 @@ class AuthManager @Inject constructor(
     private val _isDeviceAuthInProgress = MutableStateFlow(false)
     val isDeviceAuthInProgress: StateFlow<Boolean> = _isDeviceAuthInProgress.asStateFlow()
 
-    // Auto-start device auth flag - set when re-authenticating from session expired state
-    private val _startDeviceAuthImmediately = MutableStateFlow(false)
-    val startDeviceAuthImmediately: StateFlow<Boolean> = _startDeviceAuthImmediately.asStateFlow()
-
-    private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-
     private var deviceAuthJob: Job? = null
+    internal var requestUserDisconnect: (suspend () -> Boolean)? = null
+
+    private suspend fun disconnectForUserMutation() {
+        val state = tunnelManager?.tunnelState?.value ?: return
+        val tunnelActive = state.isServiceRunning || state.isConnecting || state.isSocketConnected
+        UserDisconnectGate.requireDisconnectIfNeeded(tunnelActive) {
+            requestUserDisconnect?.invoke() ?: false
+        }
+    }
 
     init {
         // Set up API client unauthorized callback
@@ -108,12 +95,6 @@ class AuthManager @Inject constructor(
             Log.w(tag, "API client received 401/403 - marking session as expired")
             markSessionExpired()
         }
-    }
-
-    private fun isOnline(): Boolean {
-        val network = connectivityManager.activeNetwork ?: return false
-        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     suspend fun initialize() {
@@ -140,30 +121,17 @@ class AuthManager @Inject constructor(
             apiClient.updateSessionToken(token)
 
             // Health check before fetching data
-            if (isOnline()) {
-                try {
-                    val isHealthy = apiClient.testConnection()
-                    if (!isHealthy) {
-                        Log.w(tag, "Server appears to be down (testConnection failed)")
-                        _isServerDown.value = true
-                        _errorMessage.value = "The server appears to be down."
-                        _isAuthenticated.value = true
-                        return
-                    }
-                    _isServerDown.value = false
-                    _errorMessage.value = null
-                } catch (e: Exception) {
-                    Log.w(tag, "Health check exception: ${e.message}, assuming server might be up but unreachable")
-                    // Don't mark as down on network exceptions, only on definitive failures
-                    _isServerDown.value = false
-                }
-            } else {
-                Log.i(tag, "Device is offline, skipping health check and marking server as 'up' (but unreachable)")
-                _isServerDown.value = false
-                if (_errorMessage.value == "The server appears to be down.") {
-                    _errorMessage.value = null
-                }
+            val isHealthy = apiClient.checkHealth()
+            if (!isHealthy) {
+                Log.w(tag, "Server appears to be down")
+                _isServerDown.value = true
+                _errorMessage.value = "The server appears to be down."
+                _isAuthenticated.value = true
+                return
             }
+
+            _isServerDown.value = false
+            _errorMessage.value = null
 
             val user = try {
                 apiClient.getUser()
@@ -221,13 +189,6 @@ class AuthManager @Inject constructor(
     fun markSessionExpired() {
         Log.w(tag, "Marking session as expired")
         _sessionExpired.value = true
-    }
-
-    /**
-     * Set the start device auth immediately flag (for re-authentication)
-     */
-    fun setStartDeviceAuthImmediately(value: Boolean) {
-        _startDeviceAuthImmediately.value = value
     }
 
     suspend fun loginWithDeviceAuth(hostnameOverride: String? = null) {
@@ -383,6 +344,9 @@ class AuthManager @Inject constructor(
      * Handle successful authentication from external source (used by DeviceAuthService)
      */
     suspend fun handleSuccessfulAuth(user: User, hostname: String, token: String) {
+        // Authentication completion changes persisted credentials and the active account.
+        disconnectForUserMutation()
+
         _currentUser.value = user
 
         secretManager.saveSecret("session-token-${user.userId}", token)
@@ -522,20 +486,14 @@ class AuthManager @Inject constructor(
                 return
             }
 
+            // Gate every account mutation before token cleanup or active-account changes.
+            disconnectForUserMutation()
+
             val token = secretManager.getSecret("session-token-$userId")
             if (token == null) {
                 Log.e(tag, "No session token for user $userId")
                 accountManager.removeAccount(userId)
                 return
-            }
-
-            // Step 0: Disconnect tunnel if running
-            tunnelManager?.let { tm ->
-                val currentState = tm.tunnelState.value
-                if (currentState.isServiceRunning || currentState.isConnecting) {
-                    Log.i(tag, "Disconnecting tunnel before switching accounts")
-                    tm.disconnect()
-                }
             }
 
             // Step 1: Switch account locally first
@@ -651,14 +609,8 @@ class AuthManager @Inject constructor(
 
             Log.i(tag, "=== ORG SWITCH: Switching user ${user.userId} to org ${organization.orgId} (${organization.name}) ===")
             
-            // Disconnect tunnel if running before switching orgs
-            tunnelManager?.let { tm ->
-                val currentState = tm.tunnelState.value
-                if (currentState.isServiceRunning || currentState.isConnecting) {
-                    Log.i(tag, "Disconnecting tunnel before switching organizations")
-                    tm.disconnect()
-                }
-            }
+            // Disconnect only after the Android Always-On ownership gate approves it.
+            disconnectForUserMutation()
             
             accountManager.setUserOrganization(user.userId, organization.orgId)
             _currentOrg.value = organization
@@ -708,12 +660,6 @@ class AuthManager @Inject constructor(
             val olmIdString = secretManager.getOlmId(userId)
             if (olmIdString != null) {
                 try {
-                    // Check if server is actually reachable before trying to verify OLM
-                    if (!apiClient.testConnection()) {
-                        Log.w(tag, "Server unreachable, assuming local OLM credentials are valid for now")
-                        return
-                    }
-
                     val olm = apiClient.getUserOlm(userId, olmIdString)
 
                     // Verify the olmId and userId match
@@ -726,15 +672,10 @@ class AuthManager @Inject constructor(
                         secretManager.deleteOlmCredentials(userId)
                     }
                 } catch (e: Exception) {
-                    // Only delete if it's a definitive 404 Not Found from the server
-                    if (e is APIError.HttpError && e.status == 404) {
-                        Log.e(tag, "OLM not found on server (404) - clearing local credentials")
-                        secretManager.deleteOlmCredentials(userId)
-                    } else {
-                        // For network errors or other server errors, keep local credentials
-                        Log.w(tag, "Failed to verify OLM credentials (network/server error): ${e.message}. Keeping local copy.")
-                        return
-                    }
+                    // If getting OLM fails, the OLM might not exist
+                    Log.e(tag, "Failed to verify OLM credentials: ${e.message}", e)
+                    // Clear invalid credentials so we can try to create new ones
+                    secretManager.deleteOlmCredentials(userId)
                 }
             } else {
                 // No olmId found, clear credentials
@@ -782,6 +723,9 @@ class AuthManager @Inject constructor(
     }
 
     suspend fun logout(): Boolean {
+        // Do not mutate server or local account state while Android still owns the tunnel.
+        disconnectForUserMutation()
+
         // Use activeAccount from AccountManager instead of _currentUser
         // because _currentUser can be null when server is down
         val activeAccount = accountManager.activeAccount
@@ -839,5 +783,14 @@ class AuthManager @Inject constructor(
             Log.i(tag, "=== LOGOUT COMPLETE - No more accounts available ===")
             return false
         }
+    }
+}
+
+internal object UserDisconnectGate {
+    suspend fun requireDisconnectIfNeeded(
+        tunnelActive: Boolean,
+        requestDisconnect: suspend () -> Boolean,
+    ) {
+        if (tunnelActive && !requestDisconnect()) throw AuthError.AlwaysOnActive
     }
 }

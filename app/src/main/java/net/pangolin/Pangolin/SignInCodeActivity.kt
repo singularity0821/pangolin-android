@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsCallback
@@ -20,28 +19,28 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.browser.customtabs.CustomTabsServiceConnection
 import androidx.browser.customtabs.CustomTabsSession
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.databinding.ActivitySignInCodeBinding
 import net.pangolin.Pangolin.util.APIClient
-import net.pangolin.Pangolin.util.AccountManager
 import net.pangolin.Pangolin.util.AuthManager
-import javax.inject.Inject
+import net.pangolin.Pangolin.util.AccountManager
+import net.pangolin.Pangolin.util.ConfigManager
+import net.pangolin.Pangolin.util.SecretManager
 
-@AndroidEntryPoint
 class SignInCodeActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySignInCodeBinding
     private val tag = "SignInCodeActivity"
 
-    @Inject lateinit var apiClient: APIClient
-    @Inject lateinit var authManager: AuthManager
-    @Inject lateinit var accountManager: AccountManager
+    private lateinit var apiClient: APIClient
+    private lateinit var authManager: AuthManager
+    private lateinit var accountManager: AccountManager
+    private lateinit var configManager: ConfigManager
+    private lateinit var secretManager: SecretManager
 
     private var hostname: String = "https://app.pangolin.net"
     private var hasAutoOpenedBrowser = false
@@ -51,20 +50,6 @@ class SignInCodeActivity : AppCompatActivity() {
     private var expiresInSeconds: Long = 300
     private var includeUsernameInDeviceURL = false
     private var isAutoStartFlow = false
-
-    private val onBackPressedCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            // Reset flags
-            includeUsernameInDeviceURL = false
-            isAutoStartFlow = false
-            
-            authManager.cancelDeviceAuth()
-            
-            isEnabled = false
-            onBackPressedDispatcher.onBackPressed()
-            isEnabled = true
-        }
-    }
 
     // Chrome Custom Tabs
     private var customTabsClient: CustomTabsClient? = null
@@ -78,7 +63,6 @@ class SignInCodeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
 
         binding = ActivitySignInCodeBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -98,16 +82,37 @@ class SignInCodeActivity : AppCompatActivity() {
             Log.i(tag, "Auto-start flow detected - will include username in device auth URL")
         }
 
-        // Point the shared APIClient at the (possibly self-hosted) sign-in hostname.
-        // AuthManager will keep this in sync once an account is active.
-        apiClient.updateBaseURL(hostname)
+        // Get version name
+        val versionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+
+        // Keep the sign-in API client isolated for its target hostname, but share the
+        // process-wide persisted managers and Android Always-On tunnel authority.
+        val runtime = (application as PangolinApplication).runtime
+        secretManager = runtime.secretManager
+        accountManager = runtime.accountManager
+        configManager = runtime.configManager
+        apiClient = APIClient(hostname, versionName = versionName)
+        authManager = AuthManager(
+            context = applicationContext,
+            apiClient = apiClient,
+            configManager = configManager,
+            accountManager = accountManager,
+            secretManager = secretManager,
+            tunnelManager = runtime.tunnelManager,
+        ).also { manager ->
+            manager.requestUserDisconnect = { runtime.disconnectFromUser() }
+        }
 
         // Setup Chrome Custom Tabs connection
         setupCustomTabs()
 
         // Setup navigation icon click
         binding.toolbar.setNavigationOnClickListener {
-            onBackPressedDispatcher.onBackPressed()
+            onBackPressed()
         }
 
         // Set theme-aware logo
@@ -214,7 +219,7 @@ class SignInCodeActivity : AppCompatActivity() {
                 val codeWithoutHyphen = currentCode?.replace("-", "") ?: ""
                 if (codeWithoutHyphen.isNotEmpty()) {
                     val loginUrl = "$hostname/auth/login/device?code=$codeWithoutHyphen"
-                    customTabsSession?.mayLaunchUrl(loginUrl.toUri(), null, null)
+                    customTabsSession?.mayLaunchUrl(Uri.parse(loginUrl), null, null)
                 }
             }
 
@@ -232,7 +237,7 @@ class SignInCodeActivity : AppCompatActivity() {
     }
 
     private fun getCustomTabsPackage(): String? {
-        val activityIntent = Intent(Intent.ACTION_VIEW, "https://example.com".toUri())
+        val activityIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
         val resolvedActivityList = packageManager.queryIntentActivities(activityIntent, 0)
         
         val packagesSupportingCustomTabs = mutableListOf<String>()
@@ -434,12 +439,12 @@ class SignInCodeActivity : AppCompatActivity() {
         hasLaunchedBrowser = true
         
         try {
-            launchCustomTab(autoOpenURL.toUri())
+            launchCustomTab(Uri.parse(autoOpenURL))
         } catch (e: Exception) {
             Log.e(tag, "Failed to open in-app browser: ${e.message}", e)
             // Fallback to system browser if Custom Tabs fails
             try {
-                val intent = Intent(Intent.ACTION_VIEW, autoOpenURL.toUri())
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(autoOpenURL))
                 startActivity(intent)
             } catch (fallbackError: Exception) {
                 Log.e(tag, "Failed to open system browser: ${fallbackError.message}", fallbackError)
@@ -540,6 +545,15 @@ class SignInCodeActivity : AppCompatActivity() {
         customTabsConnection = null
         customTabsClient = null
         customTabsSession = null
+    }
+
+    override fun onBackPressed() {
+        // Reset flags
+        includeUsernameInDeviceURL = false
+        isAutoStartFlow = false
+        
+        authManager.cancelDeviceAuth()
+        super.onBackPressed()
     }
 
     private fun setThemeAwareLogo() {

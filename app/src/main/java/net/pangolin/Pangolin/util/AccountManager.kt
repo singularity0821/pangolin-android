@@ -2,20 +2,14 @@ package net.pangolin.Pangolin.util
 
 import android.content.Context
 import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AccountManager @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-) {
+class AccountManager private constructor(private val context: Context) {
     private val tag = "AccountManager"
     
     private val _store = MutableStateFlow(AccountStore())
@@ -137,6 +131,29 @@ class AccountManager @Inject constructor(
         save()
     }
 
+    /**
+     * The resource ID of userId's selected exit node, or null if none is selected or the
+     * account doesn't exist.
+     */
+    fun getExitNode(userId: String): Int? {
+        return _store.value.accounts[userId]?.exitNodeResourceId
+    }
+
+    /** Records the selected exit node (a gateway resource) for userId; a null resourceId clears it. */
+    fun setExitNode(userId: String, resourceId: Int?) {
+        val currentStore = _store.value
+        val account = currentStore.accounts[userId]
+
+        if (account != null) {
+            val updatedAccount = account.copy(exitNodeResourceId = resourceId)
+            val updatedAccounts = currentStore.accounts.toMutableMap()
+            updatedAccounts[userId] = updatedAccount
+
+            _store.value = currentStore.copy(accounts = updatedAccounts)
+            save()
+        }
+    }
+
     fun updateAccountUserInfo(userId: String, username: String?, name: String?) {
         val currentStore = _store.value
         val account = currentStore.accounts[userId]
@@ -186,5 +203,16 @@ class AccountManager @Inject constructor(
             dir.mkdirs()
         }
         return File(dir, "accounts.json")
+    }
+
+    companion object {
+        @Volatile
+        private var instance: AccountManager? = null
+
+        fun getInstance(context: Context): AccountManager {
+            return instance ?: synchronized(this) {
+                instance ?: AccountManager(context.applicationContext).also { instance = it }
+            }
+        }
     }
 }

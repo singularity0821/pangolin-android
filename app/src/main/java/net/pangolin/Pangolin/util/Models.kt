@@ -12,7 +12,9 @@ data class Config(
     val primaryDNSServer: String? = null,
     val secondaryDNSServer: String? = null,
     val logCollectionEnabled: Boolean? = null,
-    val mtu: Int? = null
+    val mtu: Int? = null,
+    val persistentVpnNotification: Boolean = false,
+    val exitNodeTakesPrecedence: Boolean? = null
 )
 
 // MARK: - Account Types
@@ -24,7 +26,13 @@ data class Account(
     val email: String,
     var orgId: String,
     var username: String? = null,
-    var name: String? = null
+    var name: String? = null,
+    // The exit node (a gateway-mode site resource) selected for this account, re-applied on
+    // the next connect. It can differ per account, so it's stored here rather than in
+    // ConfigManager, and it belongs to the account's currently selected org (orgId above). Only
+    // the resource ID is stored (not the niceId, which can be renamed); its sites are looked up
+    // from the server on every connect so they can't go stale.
+    var exitNodeResourceId: Int? = null
 )
 
 @Serializable
@@ -277,7 +285,12 @@ data class SocketStatusResponse(
     val orgId: String? = null,
     val networkSettings: NetworkSettings? = null,
     val error: OlmError? = null,
-    val exitNode: ExitNode? = null
+    val exitNode: ExitNode? = null,
+    // Whether all traffic is routed through a gateway (exit node), the gateway site resource it
+    // was selected from, and the sites currently in use for it.
+    val gatewayActive: Boolean? = null,
+    val gatewaySiteResourceId: Int? = null,
+    val gatewaySiteIds: List<Int>? = null
 )
 
 @Serializable
@@ -288,7 +301,8 @@ data class SocketPeer(
     val rtt: Long? = null,  // nanoseconds
     val lastSeen: String? = null,
     val endpoint: String? = null,
-    val isRelay: Boolean? = null
+    val isRelay: Boolean? = null,
+    val isLocal: Boolean? = null
 )
 
 // ExitNode represents the connectivity status of the client's own exit node
@@ -345,6 +359,39 @@ data class SocketSwitchOrgRequest(
 @Serializable
 data class SocketSwitchOrgResponse(
     val status: String
+)
+
+@Serializable
+data class SocketSelectGatewayRequest(
+    val siteResourceId: Int,
+    val siteIds: List<Int>
+)
+
+@Serializable
+data class SocketGatewayResponse(
+    val status: String
+)
+
+// MARK: - Gateway (Exit Node) Resources
+
+/**
+ * A site resource as returned by GET /org/:orgId/site-resources. Only the fields the exit node
+ * picker needs are modeled. Gateway-mode resources are what the app calls exit nodes.
+ */
+@Serializable
+data class SiteResource(
+    val siteResourceId: Int,
+    val niceId: String,
+    val name: String,
+    val mode: String,
+    val enabled: Boolean,
+    val siteIds: List<Int> = emptyList(),
+    val siteNames: List<String>? = null
+)
+
+@Serializable
+data class ListSiteResourcesResponse(
+    val siteResources: List<SiteResource>
 )
 
 // MARK: - Display Name Helpers

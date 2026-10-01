@@ -10,36 +10,15 @@ import android.text.TextPaint
 import android.text.method.LinkMovementMethod
 import android.text.style.URLSpan
 import android.view.View
-import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
-import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.databinding.ActivityLoginBinding
 import net.pangolin.Pangolin.util.AccountManager
-import net.pangolin.Pangolin.util.AuthManager
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginBinding
-    @Inject lateinit var accountManager: AccountManager
-    @Inject lateinit var authManager: AuthManager
+    private lateinit var accountManager: AccountManager
     private var showingSelfHostedInput = false
-
-    private val onBackPressedCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            if (showingSelfHostedInput) {
-                showHostingSelection()
-            } else {
-                // Only allow back if there are accounts
-                if (accountManager.accounts.isNotEmpty()) {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                    isEnabled = true
-                }
-            }
-        }
-    }
 
     companion object {
         const val EXTRA_HOSTNAME = "extra_hostname"
@@ -47,10 +26,12 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
         
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Initialize account manager
+        accountManager = AccountManager.getInstance(applicationContext)
 
         // Set theme-aware logo
         setThemeAwareLogo()
@@ -67,7 +48,7 @@ class LoginActivity : AppCompatActivity() {
         // Setup navigation icon click only if there are accounts
         if (hasAccounts) {
             binding.toolbar.setNavigationOnClickListener {
-                onBackPressedDispatcher.onBackPressed()
+                onBackPressed()
             }
         }
 
@@ -109,26 +90,6 @@ class LoginActivity : AppCompatActivity() {
             }
         }
         
-        // Check if we should auto-start device auth (for re-authentication)
-        // This should happen after UI setup but before user interaction
-        if (authManager.startDeviceAuthImmediately.value) {
-            // Clear the flag
-            authManager.setStartDeviceAuthImmediately(false)
-            
-            // Get hostname from active account
-            val activeAccount = accountManager.activeAccount
-            if (activeAccount != null) {
-                // Auto-start with existing hostname
-                val intent = Intent(this, SignInCodeActivity::class.java)
-                intent.putExtra(SignInCodeActivity.EXTRA_HOSTNAME, activeAccount.hostname)
-                intent.putExtra("AUTO_START_DEVICE_AUTH", true)
-                startActivity(intent)
-                // Don't finish - let user go back if needed
-            } else {
-                // Shouldn't happen, but fallback to normal flow
-                android.util.Log.w("LoginActivity", "Auto-start requested but no active account found")
-            }
-        }
     }
 
     private fun showHostingSelection() {
@@ -163,6 +124,17 @@ class LoginActivity : AppCompatActivity() {
         normalized = normalized.trimEnd('/')
         
         return normalized
+    }
+
+    override fun onBackPressed() {
+        if (showingSelfHostedInput) {
+            showHostingSelection()
+        } else {
+            // Only allow back if there are accounts
+            if (accountManager.accounts.isNotEmpty()) {
+                super.onBackPressed()
+            }
+        }
     }
 
     private fun removeUnderlineFromLinks(spanned: Spanned): SpannableString {

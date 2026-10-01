@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "net.pangolin.Pangolin.PacketTunnel"
-    compileSdk = 37
+    compileSdk {
+        version = release(36)
+    }
 
     defaultConfig {
         minSdk = 24
@@ -32,7 +34,7 @@ android {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
+                "proguard-rules.pro"
             )
         }
     }
@@ -41,12 +43,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     ndkVersion = "29.0.14206865"
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
-    }
 }
 
 dependencies {

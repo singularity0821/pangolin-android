@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application>
 	    <service
 	        android:name="net.pangolin.Pangolin.PacketTunnel.GoBackend$VpnService"
 	        android:permission="android.permission.BIND_VPN_SERVICE"
+	        android:foregroundServiceType="systemExempted"
 	        android:exported="false">
 	        <intent-filter>
 	            <action android:name="android.net.VpnService" />
 	        </intent-filter>
 	        <meta-data
 	            android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
-	            android:value="false" />
+	            android:value="true" />
 	    </service>  
     </application>
 

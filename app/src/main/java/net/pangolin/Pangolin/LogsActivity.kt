@@ -12,7 +12,6 @@ import androidx.core.content.FileProvider
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.navigation.NavigationView
-import dagger.hilt.android.AndroidEntryPoint
 import net.pangolin.Pangolin.util.ConfigManager
 import java.io.File
 import java.io.FileInputStream
@@ -22,13 +21,11 @@ import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import javax.inject.Inject
 
-@AndroidEntryPoint
 class LogsActivity : BaseNavigationActivity() {
 
     private val tag = "LogsActivity"
-    @Inject lateinit var configManager: ConfigManager
+    private lateinit var configManager: ConfigManager
     private lateinit var logStatusText: TextView
     private lateinit var downloadLogsButton: Button
     private lateinit var logFileInfoText: TextView
@@ -36,6 +33,8 @@ class LogsActivity : BaseNavigationActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_logs)
+
+        configManager = ConfigManager.getInstance(this)
 
         // Setup navigation
         setupNavigation(
