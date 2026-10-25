@@ -11,10 +11,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
-import android.text.style.RelativeSizeSpan
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -867,23 +863,8 @@ class MainActivity : BaseNavigationActivity() {
             return
         }
 
-        // "None" first, then each exit node with the sites it routes through beneath its name
-        val secondaryColor = MaterialColors.getColor(
-            this, com.google.android.material.R.attr.colorOnSurfaceVariant, android.graphics.Color.GRAY
-        )
-        val names = (listOf<CharSequence>("None") + nodes.map { node ->
-            val siteNames = node.siteNames.orEmpty()
-            if (siteNames.isEmpty()) {
-                node.name
-            } else {
-                SpannableStringBuilder(node.name).append('\n').apply {
-                    val start = length
-                    append(siteNames.joinToString(", "))
-                    setSpan(RelativeSizeSpan(0.85f), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    setSpan(ForegroundColorSpan(secondaryColor), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-            }
-        }).toTypedArray()
+        // "None" first, then each exit node by name
+        val names = (listOf<CharSequence>("None") + nodes.map { it.name }).toTypedArray()
         val activeIndex = nodes.indexOfFirst { it.siteResourceId == state.activeId }
         val checkedItem = if (activeIndex >= 0) activeIndex + 1 else 0
 

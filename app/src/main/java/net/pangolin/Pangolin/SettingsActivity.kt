@@ -10,7 +10,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.view.ViewGroup
 import android.text.method.DigitsKeyListener
-import android.util.Patterns
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.EditTextPreference
 import androidx.preference.Preference
@@ -21,6 +20,7 @@ import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import net.pangolin.Pangolin.databinding.SettingsActivityBinding
+import net.pangolin.Pangolin.util.DnsServerAddress
 import net.pangolin.Pangolin.util.TunnelManager
 
 class SettingsActivity : BaseNavigationActivity() {
@@ -233,11 +233,15 @@ class SettingsActivity : BaseNavigationActivity() {
                     setText(preference.text)
                 }
 
-                // If DNS fields, restrict to numeric + decimal input (to allow dots) and validate
+                // If DNS fields, restrict to the characters of an IPv4/IPv6 address and validate
                 val isDnsField = preference.key == "primaryDNSServer" || preference.key == "secondaryDNSServer"
                 val isMtuField = preference.key == "mtu"
                 if (isDnsField) {
-                    editText.keyListener = DigitsKeyListener.getInstance("0123456789.:")
+                    editText.keyListener = DigitsKeyListener.getInstance("0123456789abcdefABCDEF.:")
+                    // DigitsKeyListener asks for the number pad, which has no ':' or hex letters for IPv6
+                    editText.setRawInputType(
+                        android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                    )
                     textInputLayout.placeholderText = "System DNS"
                 } else if (isMtuField) {
                     editText.keyListener = DigitsKeyListener.getInstance("0123456789")
@@ -268,7 +272,7 @@ class SettingsActivity : BaseNavigationActivity() {
                                 if (newValue.isEmpty()) {
                                     true
                                 } else {
-                                    Patterns.IP_ADDRESS.matcher(newValue).matches()
+                                    DnsServerAddress.isValid(newValue)
                                 }
                             }
                             isMtuField -> {
@@ -279,19 +283,14 @@ class SettingsActivity : BaseNavigationActivity() {
                         }
 
                         if (!isValid) {
-                            when {
-                                isMtuField -> {
-                                    textInputLayout.error = "Please enter a valid MTU value"
-                                    textInputLayout.helperText = "Must be between 576 and 65535"
-                                }
-                                else -> {
-                                    textInputLayout.error = "Please enter a valid IP address"
-                                    textInputLayout.helperText = "Examples: 1.1.1.1, 8.8.4.4, or IPv6 like 2001:4860:4860::8888"
-                                }
+                            // Only the error is set: setting helperText afterwards replaces
+                            // the error caption, so it would flash and disappear
+                            textInputLayout.error = when {
+                                isMtuField -> "Please enter a valid MTU value between 576 and 65535"
+                                else -> "Please enter a valid IP address, like 1.1.1.1 or 2001:4860:4860::8888"
                             }
                         } else {
                             textInputLayout.error = null
-                            textInputLayout.helperText = null
                             if (preference.callChangeListener(newValue)) {
                                 preference.text = newValue
                                 dialog.dismiss()
@@ -304,7 +303,6 @@ class SettingsActivity : BaseNavigationActivity() {
                         neutralButton?.setOnClickListener {
                             editText.setText("")
                             textInputLayout.error = null
-                            textInputLayout.helperText = null
                             if (preference.callChangeListener("")) {
                                 preference.text = ""
                             }

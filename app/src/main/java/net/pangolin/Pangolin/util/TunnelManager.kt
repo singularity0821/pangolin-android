@@ -315,10 +315,10 @@ class TunnelManager private constructor(
                 // explicit user override and would stop it from being auto-updated.
                 val upstreamDns = mutableListOf<String>()
                 if (!primaryDNS.isNullOrBlank()) {
-                    upstreamDns.add("$primaryDNS:53")
+                    upstreamDns.add(DnsServerAddress.toHostPort(primaryDNS.trim()))
                 }
                 if (!secondaryDNS.isNullOrBlank()) {
-                    upstreamDns.add("$secondaryDNS:53")
+                    upstreamDns.add(DnsServerAddress.toHostPort(secondaryDNS.trim()))
                 }
 
                 val tunnelConfig = TunnelConfig.Builder()
